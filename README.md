@@ -31,8 +31,8 @@
 ### Local Setup
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/yourusername/qbn-designer.git](https://github.com/yourusername/qbn-designer.git)
-    cd qbn-designer
+    git clone https://github.com/A-K-T-K/BayesQ.git
+    cd BayesQ  # Match the repository name case
     ```
 
 2.  **Create a virtual environment (Recommended):**
@@ -54,11 +54,10 @@ To run the environment in a reproducible container
 
 ```bash
 # Build the image
-docker build -t qbn-designer .
+docker build -t bayesq
 
 # Run the container 
-docker run -it qbn-designer python benchmarks/benchmark_v2.py
-
+docker run -it bayesq python benchmarks/benchmark.py
 ```
 *Note: GUI forwarding requires X11 configuration; headless benchmarks run natively.*
 
@@ -69,7 +68,7 @@ docker run -it qbn-designer python benchmarks/benchmark_v2.py
 ### Running the Application
 To launch the graphical interface:
 ```bash
-python qbn.py
+python bayesq.py
 ```
 
 ### Workflow
@@ -80,9 +79,9 @@ python qbn.py
 
 ### Loading Case Studies
 The `case_studies/` folder contains the pre-built example networks
-* **Medical Diagnosis:** `case_studies/medical.qbn.json`
-* **Financial Risk:** `case_studies/financial.qbn.json`
-* **Environmental Monitoring:** `case_studies/environmental.qbn.json`
+* **Asia Network:** `case_studies/asia.qbn.json`
+* **Cancer Network:** `case_studies/cancer.qbn.json`
+* **Reliability analysis:** `case_studies/reliability.qbn.json`
 
 Use **File > Open Network** (`Ctrl+O`) to load these pre-built models.
 
@@ -111,32 +110,47 @@ Reproduce the evaluation results
 ## 📂 Project Structure
 
 ```text
-qbn-designer/
-├── assets/                 
-├── benchmarks/             # Evaluation artifacts
-│   ├── benchmark.py        # Data generation script
-│   └── plot_results.py     # Plotting script
-├── case_studies/           # Example networks
-│   ├── medical.qbn.json
-│   ├── financial.qbn.json
-│   └── environmental.qbn.json
-├── qbn.py                  # Main application entry point
-├── Dockerfile              
-├── requirements.txt        
-├── LICENSE                 
-└── README.md               
+BayesQ/
+├── assets/                  # Static assets (images, figures, etc.)
+├── benchmarks/              # Evaluation and benchmarking artifacts
+│   ├── benchmark.py         # Data generation and benchmarking script
+│   └── plot_results.py      # Benchmark results visualization
+├── case_studies/            # Example Bayesian / Quantum Bayesian networks
+│   ├── asia.qbn.json        # Asia network (QBN format)
+│   ├── cancer.qbn.json      # Cancer network (QBN format)
+│   ├── reliability.qbn.json # Reliability network (QBN format)
+│   └── genie/               # Classical Bayesian networks (GeNIe format)
+│       ├── asia.xdsl
+│       ├── cancer.xdsl      # For classical inference in GeNIe software
+│       └── reliability.xdsl
+├── bayesq.py                   # Main application entry point
+├── Dockerfile               # Docker configuration
+├── requirements.txt         # Python dependencies
+├── LICENSE                  # License information
+└── README.md                # Project documentation
 
 ```
 
 ---
 
-## 📄 Citation
+<!-- ## 📄 Citation
 
 If you use BayesQ in your research, please cite our paper:
 
-> **A Visual Platform for Quantum Bayesian Inference and Circuit Synthesis: Software Architecture, Engineering Experience, and Evaluation** > *Abhinav Krishnan T K, Indranil Hazra* > *Special Issue: Quantum Software Development Life Cycle, 2025*
+> **A Visual Platform for Quantum Bayesian Inference and Circuit Synthesis: Software Architecture, Engineering Experience, and Evaluation** > *Abhinav Krishnan T K, Indranil Hazra* > *Special Issue: Quantum Software Development Life Cycle, 2025* -->
 
----
+
+## 📚 Acknowledgments
+
+The example networks in `case_studies/` are based on reference Bayesian networks and research publications:
+
+- **Asia (Chest Clinic) Network**: Originally described in Lauritzen, S. L., & Spiegelhalter, D. J. (1988). Local computations with probabilities on graphical structures and their application to expert systems. *Journal of the Royal Statistical Society: Series B (Methodological)*, 50(2), 157-224. https://doi.org/10.1111/j.2517-6161.1988.tb01721.x
+
+- **Cancer Network**: Adapted from the bnlearn Bayesian Network Repository (https://www.bnlearn.com/bnrepository/)
+
+- **Reliability Network**: Adapted from the fault tree structure in Xiong, S., Guo, Y., Yang, H., Zou, H., & Wei, K. (2021). Reliability study of motor controller in electric vehicle by the approach of fault tree analysis. *Engineering Failure Analysis*, 121, 105165. https://doi.org/10.1016/j.engfailanal.2020.105165
+
+These networks are used for benchmarking and validation purposes.
 
 ## 📜 License
 
