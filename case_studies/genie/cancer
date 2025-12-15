@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This network was created in GeNIe Academic, which can be used for academic teaching and research purposes only -->
+<smile version="1.0" id="Network2" numsamples="10000" discsamples="10000">
+	<nodes>
+		<cpt id="pollution">
+			<state id="low" />
+			<state id="high" />
+			<probabilities>0.9 0.1</probabilities>
+		</cpt>
+		<cpt id="smoker">
+			<state id="true" />
+			<state id="false" />
+			<probabilities>0.3 0.7</probabilities>
+		</cpt>
+		<cpt id="cancer">
+			<state id="true" />
+			<state id="false" />
+			<parents>pollution smoker</parents>
+			<probabilities>0.03000000000000003 0.97 0.001000000000000001 0.999 0.05000000000000004 0.95 0.02000000000000002 0.98</probabilities>
+		</cpt>
+		<cpt id="xray">
+			<state id="positive" />
+			<state id="negative" />
+			<parents>cancer</parents>
+			<probabilities>0.9 0.1 0.2 0.8</probabilities>
+		</cpt>
+		<cpt id="dysonoea">
+			<state id="true" />
+			<state id="false" />
+			<parents>cancer</parents>
+			<probabilities>0.65 0.35 0.3 0.7</probabilities>
+		</cpt>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 5.0.5310.0 ACADEMIC" name="Network2">
+			<node id="cancer">
+				<name>cancer</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>618 380 669 411</position>
+				<barchart active="true" />
+			</node>
+			<node id="xray">
+				<name>xray</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>517 264 559 290</position>
+				<barchart active="true" />
+			</node>
+			<node id="dysonoea">
+				<name>dysonoea</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>726 241 788 279</position>
+				<barchart active="true" />
+			</node>
+			<node id="pollution">
+				<name>pollution</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>510 482 564 515</position>
+				<barchart active="true" />
+			</node>
+			<node id="smoker">
+				<name>smoker</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>786 495 837 526</position>
+				<barchart active="true" />
+			</node>
+		</genie>
+	</extensions>
+</smile>

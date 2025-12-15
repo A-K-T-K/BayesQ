@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This network was created in GeNIe Academic, which can be used for academic teaching and research purposes only -->
+<smile version="1.0" id="Network1" numsamples="10000" discsamples="10000">
+	<nodes>
+		<cpt id="ec1">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.023 0.977</probabilities>
+		</cpt>
+		<cpt id="ec2">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.1523 0.8477</probabilities>
+		</cpt>
+		<cpt id="ec3">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.0103 0.9897</probabilities>
+		</cpt>
+		<cpt id="ec4">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.1298 0.8702</probabilities>
+		</cpt>
+		<cpt id="ec5">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.00053 0.99947</probabilities>
+		</cpt>
+		<cpt id="ec6">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.0272 0.9728</probabilities>
+		</cpt>
+		<cpt id="ec7">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.00086 0.99914</probabilities>
+		</cpt>
+		<cpt id="ec8">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.0326 0.9674</probabilities>
+		</cpt>
+		<cpt id="ec9">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.0051 0.9949</probabilities>
+		</cpt>
+		<cpt id="ec10">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.0411 0.9589</probabilities>
+		</cpt>
+		<cpt id="ec11">
+			<state id="State0" />
+			<state id="State1" />
+			<probabilities>0.0045 0.9955000000000001</probabilities>
+		</cpt>
+		<cpt id="gc1">
+			<state id="State0" />
+			<state id="State1" />
+			<parents>ec1 ec2</parents>
+			<probabilities>1 0 1 0 1 0 0 1</probabilities>
+		</cpt>
+		<cpt id="gc2">
+			<state id="State0" />
+			<state id="State1" />
+			<parents>ec3 ec4</parents>
+			<probabilities>1 0 1 0 1 0 0 1</probabilities>
+		</cpt>
+		<cpt id="gc3">
+			<state id="State0" />
+			<state id="State1" />
+			<parents>ec5 ec6</parents>
+			<probabilities>1 0 1 0 1 0 0 1</probabilities>
+		</cpt>
+		<cpt id="gc4">
+			<state id="State0" />
+			<state id="State1" />
+			<parents>ec7 ec8</parents>
+			<probabilities>1 0 1 0 1 0 0 1</probabilities>
+		</cpt>
+		<cpt id="gc5">
+			<state id="State0" />
+			<state id="State1" />
+			<parents>ec9 ec10 ec11</parents>
+			<probabilities>1 0 1 0 1 0 1 0 1 0 1 0 1 0 0 1</probabilities>
+		</cpt>
+		<cpt id="s">
+			<state id="State0" />
+			<state id="State1" />
+			<parents>gc1 gc2 gc3 gc4 gc5</parents>
+			<probabilities>1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0 1</probabilities>
+		</cpt>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 5.0.5310.0 ACADEMIC" name="Network1">
+			<node id="ec1">
+				<name>ec1</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>525 518 565 543</position>
+			</node>
+			<node id="ec2">
+				<name>ec2</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>591 518 631 543</position>
+			</node>
+			<node id="ec3">
+				<name>ec3</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>658 518 698 543</position>
+			</node>
+			<node id="ec4">
+				<name>ec4</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>725 518 765 543</position>
+			</node>
+			<node id="ec5">
+				<name>ec5</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>792 518 832 543</position>
+			</node>
+			<node id="ec6">
+				<name>ec6</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>859 518 899 543</position>
+			</node>
+			<node id="ec7">
+				<name>ec7</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>926 518 966 543</position>
+			</node>
+			<node id="ec8">
+				<name>ec8</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>993 518 1033 543</position>
+			</node>
+			<node id="ec9">
+				<name>ec9</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>1060 518 1100 543</position>
+			</node>
+			<node id="ec10">
+				<name>ec10</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>1126 518 1169 544</position>
+			</node>
+			<node id="ec11">
+				<name>ec11</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>1193 518 1236 544</position>
+			</node>
+			<node id="gc1">
+				<name>gc1</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>698 309 738 334</position>
+			</node>
+			<node id="gc2">
+				<name>gc2</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>820 313 860 338</position>
+			</node>
+			<node id="gc3">
+				<name>gc3</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>912 315 952 340</position>
+			</node>
+			<node id="gc4">
+				<name>gc4</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>997 317 1037 342</position>
+			</node>
+			<node id="gc5">
+				<name>gc5</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>1095 319 1135 344</position>
+			</node>
+			<node id="s">
+				<name>s</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>899 180 933 201</position>
+				<barchart active="true" />
+			</node>
+		</genie>
+	</extensions>
+</smile>

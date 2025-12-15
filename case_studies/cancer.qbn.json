@@ -1,0 +1,50 @@
+{
+  "name": "Lung Cancer Network",
+  "version": "2.0.1",
+  "nodes": {
+    "Pollution": {
+      "states": ["low", "high"],
+      "cpt": [0.9, 0.1]
+    },
+    "Smoker": {
+      "states": ["True", "False"],
+      "cpt": [0.3, 0.7]
+    },
+    "Cancer": {
+      "states": ["True", "False"],
+      "cpt": [
+        0.03, 0.97,
+        0.001, 0.999,
+        0.05, 0.95,
+        0.02, 0.98
+      ]
+    },
+    "Xray": {
+      "states": ["positive", "negative"],
+      "cpt": [
+        0.9, 0.1,
+        0.2, 0.8
+      ]
+    },
+    "Dyspnoea": {
+      "states": ["True", "False"],
+      "cpt": [
+        0.65, 0.35,
+        0.30, 0.70
+      ]
+    }
+  },
+  "edges": [
+    ["Pollution", "Cancer"],
+    ["Smoker", "Cancer"],
+    ["Cancer", "Xray"],
+    ["Cancer", "Dyspnoea"]
+  ],
+  "positions": {
+    "Pollution": [100, 50],
+    "Smoker": [400, 50],
+    "Cancer": [250, 200],
+    "Xray": [150, 400],
+    "Dyspnoea": [350, 400]
+  }
+}
