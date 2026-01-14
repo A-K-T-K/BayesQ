@@ -1,9 +1,10 @@
 qiskit
 qiskit_aer
-qiskit-machine-learning
+
 numpy
 matplotlib
 networkx
 psutil
 scipy
+
 pylatexenc
