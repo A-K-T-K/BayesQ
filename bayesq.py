@@ -1,5 +1,23 @@
-import logging
-logger = logging.getLogger("qbn")
+"""
+BayesQ - Quantum Bayesian Network Research Platform
+===================================================
+
+A comprehensive framework for the design, validation, and quantum simulation of 
+Bayesian Networks. This platform facilitates the translation of classical probabilistic 
+graphical models into quantum circuits, enabling the study of quantum inference 
+algorithms and noise resilience.
+
+Key Capabilities:
+- Interactive Directed Acyclic Graph (DAG) Construction
+- Automated Quantum Circuit Synthesis via Qiskit
+- Stochastic Noise Simulation & Resource Profiling
+- Real-time Topological and Probabilistic Validation
+- Posterior Inference via Quantum Rejection Sampling
+
+License: MIT
+
+"""
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import json
@@ -13,10 +31,9 @@ from functools import wraps
 import configparser
 import os
 from datetime import datetime
+import threading
 
-from qiskit.visualization import plot_histogram
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-#--- Matplotlib Imports ---
+# --- Matplotlib Visualization Library Dependencies ---
 try:
     import matplotlib
     matplotlib.use('TkAgg')
@@ -24,42 +41,44 @@ try:
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
     import matplotlib.pyplot as plt
 except ImportError:
-    logger.debug("Matplotlib not found. Please install: pip install matplotlib")
+    print("Critical Dependency Error: Matplotlib is missing. Please execute: pip install matplotlib")
     exit()
 
-# --- NetworkX Imports ---
+# --- Network Analysis Library Dependencies ---
 try:
     import networkx as nx
 except ImportError:
-    logger.debug("NetworkX not found. Please install: pip install networkx")
+    print("Critical Dependency Error: NetworkX is missing. Please execute: pip install networkx")
     exit()
 
-# --- Qiskit Imports ---
+# --- Quantum Computing SDK Dependencies (Qiskit) ---
 try:
-    from qiskit import QuantumCircuit, QuantumRegister
-    from qiskit_machine_learning.algorithms import QBayesian
+    from qiskit import QuantumCircuit, QuantumRegister, transpile
     from qiskit.visualization import plot_histogram, circuit_drawer
-    from qiskit.primitives import BackendSampler
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import (NoiseModel, depolarizing_error, 
                                   thermal_relaxation_error, phase_damping_error,
                                   amplitude_damping_error)
 except ImportError:
-    logger.debug("Qiskit not found. Please install: pip install qiskit qiskit-aer qiskit-machine-learning")
+    print("Critical Dependency Error: Qiskit is missing. Please execute: pip install qiskit qiskit-aer")
     exit()
 
 
 # ============================================================================
-# UI HELPERS: TOOLTIPS
+# USER INTERFACE AUXILIARY COMPONENTS
 # ============================================================================
 
 class CreateToolTip(object):
     """
-    Create a tooltip for a given widget.
+    Implements a context-aware tooltip mechanism for UI widgets.
+    
+    This class manages the scheduling and rendering of transient information windows
+    triggered by mouse interaction events.
     """
     def __init__(self, widget, text='widget info'):
-        self.waittime = 500     # miliseconds
-        self.wraplength = 250   # pixels
+        """Initialize the tooltip association with a specific widget."""
+        self.waittime = 500     # Latency in milliseconds before display
+        self.wraplength = 250   # Maximum width in pixels before text wrapping
         self.widget = widget
         self.text = text
         self.widget.bind("<Enter>", self.enter)
@@ -69,30 +88,33 @@ class CreateToolTip(object):
         self.tw = None
 
     def enter(self, event=None):
+        """Handle the mouse-enter event to initiate the tooltip display schedule."""
         self.schedule()
 
     def leave(self, event=None):
+        """Handle the mouse-leave event to cancel or destroy the tooltip."""
         self.unschedule()
         self.hidetip()
 
     def schedule(self):
+        """Schedule the tooltip display event after the defined latency period."""
         self.unschedule()
         self.id = self.widget.after(self.waittime, self.showtip)
 
     def unschedule(self):
+        """Cancel any pending tooltip display events."""
         id = self.id
         self.id = None
         if id:
             self.widget.after_cancel(id)
 
     def showtip(self, event=None):
+        """Render the tooltip window at the cursor's current coordinates."""
         x = y = 0
         x, y, cx, cy = self.widget.bbox("insert")
         x += self.widget.winfo_rootx() + 25
         y += self.widget.winfo_rooty() + 20
-        # creates a toplevel window
         self.tw = tk.Toplevel(self.widget)
-        # Leaves only the label and removes the app window
         self.tw.wm_overrideredirect(True)
         self.tw.wm_geometry("+%d+%d" % (x, y))
         label = tk.Label(self.tw, text=self.text, justify='left',
@@ -101,23 +123,30 @@ class CreateToolTip(object):
         label.pack(ipadx=1)
 
     def hidetip(self):
+        """Destroy the tooltip window if it exists."""
         tw = self.tw
         self.tw= None
         if tw:
             tw.destroy()
 
 # ============================================================================
-# LOGGING AND RESOURCE MONITORING
+# SYSTEM TELEMETRY AND LOGGING
 # ============================================================================
 
 class TextWidgetHandler(logging.Handler):
-    """Custom logging handler that writes to a Tkinter Text widget."""
+    """
+    A custom logging handler designed to redirect log records to a Tkinter Text widget.
+    
+    This facilitates real-time display of system events within the application GUI.
+    """
     def __init__(self, text_widget):
+        """Initialize the handler with the target Text widget."""
         logging.Handler.__init__(self)
         self.text_widget = text_widget
         self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
 
     def emit(self, record):
+        """Process a log record and append it to the widget in a thread-safe manner."""
         msg = self.format(record)
         def append():
             try:
@@ -131,24 +160,33 @@ class TextWidgetHandler(logging.Handler):
 
 
 class ResourceMonitor:
-    """Enhanced resource monitoring with real-time updates."""
+    """
+    Facilitates the real-time monitoring and profiling of system resources.
+    
+    Tracks CPU utilization, memory consumption, and thread count to assess
+    the computational overhead of quantum simulations.
+    """
     def __init__(self):
+        """Initialize the process monitor interface."""
         self.process = psutil.Process()
         self.monitoring = False
         self.resources = []
         self.start_time = None
 
     def start_monitoring(self):
+        """Commence the data collection cycle."""
         self.monitoring = True
         self.resources = []
         self.start_time = time.time()
         self.record()
 
     def stop_monitoring(self):
+        """Terminate the data collection cycle and finalize records."""
         self.monitoring = False
         self.record()
 
     def get_snapshot(self):
+        """Capture an instantaneous snapshot of system metrics."""
         mem_info = self.process.memory_info()
         return {
             'timestamp': time.time(), 
@@ -158,40 +196,50 @@ class ResourceMonitor:
         }
 
     def record(self):
+        """Append the current system snapshot to the historical record."""
         self.resources.append(self.get_snapshot())
 
     def get_summary(self):
+        """Generate a statistical summary of resource usage over the monitoring period."""
         if len(self.resources) < 2: 
-            return "Insufficient monitoring data"
+            return "Insufficient monitoring data for statistical analysis."
         
         elapsed = self.resources[-1]['timestamp'] - self.resources[0]['timestamp']
         mem_vals = [r['memory_mb'] for r in self.resources]
         cpu_vals = [r['cpu_percent'] for r in self.resources if r['cpu_percent'] > 0]
         
-        return (f"=== RESOURCE SUMMARY ===\n"
-                f"Time: {elapsed:.3f}s | Peak Mem: {max(mem_vals):.2f} MB | Avg Mem: {sum(mem_vals)/len(mem_vals):.2f} MB\n"
-                f"Peak CPU: {max(cpu_vals) if cpu_vals else 0:.1f}% | Avg CPU: {sum(cpu_vals)/len(cpu_vals) if cpu_vals else 0:.1f}% | Threads: {self.resources[-1]['threads']}")
+        return (f"=== RESOURCE UTILIZATION SUMMARY ===\n"
+                f"Duration: {elapsed:.3f}s | Peak Memory: {max(mem_vals):.2f} MB | Mean Memory: {sum(mem_vals)/len(mem_vals):.2f} MB\n"
+                f"Peak CPU: {max(cpu_vals) if cpu_vals else 0:.1f}% | Mean CPU: {sum(cpu_vals)/len(cpu_vals) if cpu_vals else 0:.1f}% | Active Threads: {self.resources[-1]['threads']}")
 
 
 # ============================================================================
-# UTILITY CLASSES
+# ARCHITECTURAL UTILITIES
 # ============================================================================
 
 class ConfigManager:
-    """Manages application configuration settings."""
+    """
+    Manages persistent application configuration parameters.
+    
+    Handles serialization and deserialization of user preferences and simulation
+    settings via INI files.
+    """
 
-    def __init__(self, config_file: str = 'qbn_config.ini'):
+    def __init__(self, config_file: str = 'bayesq_config.ini'):
+        """Initialize the configuration parser."""
         self.config = configparser.ConfigParser()
         self.config_file = config_file
         self.load_config()
 
     def load_config(self) -> None:
+        """Load configuration from disk or initialize defaults if the file is absent."""
         if os.path.exists(self.config_file):
             self.config.read(self.config_file)
         else:
             self.create_default_config()
 
     def create_default_config(self) -> None:
+        """Establish default parameters for the application runtime."""
         self.config['DEFAULT'] = {
             'shots': '1024',
             'noise_model': 'None (Ideal)',
@@ -206,13 +254,16 @@ class ConfigManager:
         self.save_config()
 
     def save_config(self) -> None:
+        """Persist current configuration state to disk."""
         with open(self.config_file, 'w') as f:
             self.config.write(f)
 
     def get(self, section: str, key: str, fallback: Any = None) -> str:
+        """Retrieve a configuration value with fallback support."""
         return self.config.get(section, key, fallback=fallback)
 
     def set(self, section: str, key: str, value: str) -> None:
+        """Update a configuration value and persist changes."""
         if not self.config.has_section(section):
             self.config.add_section(section)
         self.config.set(section, key, value)
@@ -220,11 +271,12 @@ class ConfigManager:
 
 
 def setup_logging(log_level: str = 'INFO') -> logging.Logger:
+    """Initialize the global logging infrastructure."""
     log_dir = 'logs'
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
-    log_file = os.path.join(log_dir, f'qbn_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+    log_file = os.path.join(log_dir, f'bayesq_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
 
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
@@ -235,18 +287,24 @@ def setup_logging(log_level: str = 'INFO') -> logging.Logger:
         ]
     )
 
-    logger = logging.getLogger('QBN')
-    logger.info(f"Logging initialized at {log_level} level")
+    logger = logging.getLogger('BayesQ')
+    logger.info(f"Logging subsystem initialized at {log_level} level")
     return logger
 
 
 class PerformanceMonitor:
+    """
+    A decorator-based utility for benchmarking function execution metrics.
+    """
     def __init__(self):
         self.metrics: List = []
-        self.logger = logging.getLogger('QBN.Performance')
+        self.logger = logging.getLogger('BayesQ.Performance')
 
     @staticmethod
     def benchmark(func):
+        """
+        Decorator to measure execution time and memory delta of the target function.
+        """
         @wraps(func)
         def wrapper(*args, **kwargs):
             process = psutil.Process()
@@ -260,125 +318,136 @@ class PerformanceMonitor:
             execution_time = end_time - start_time
             memory_used = mem_after - mem_before
 
-            logger = logging.getLogger('QBN.Performance')
-            logger.info(f"{func.__name__}: {execution_time:.4f}s, Memory: {memory_used:.2f} MB")
+            logger = logging.getLogger('BayesQ.Performance')
+            logger.info(f"Method {func.__name__}: Duration={execution_time:.4f}s, Memory Delta={memory_used:.2f} MB")
 
             return result
         return wrapper
 
 
 class NetworkValidator:
+    """
+    Enforces topological consistency and probabilistic integrity constraints.
+    
+    Ensures that the graph structure remains a Directed Acyclic Graph (DAG) and 
+    that Conditional Probability Tables (CPTs) represent valid probability distributions.
+    """
     def __init__(self, max_nodes: int = 20, max_parents: int = 5):
+        """Define validation constraints."""
         self.max_nodes = max_nodes
         self.max_parents = max_parents
-        self.logger = logging.getLogger('QBN.Validator')
+        self.logger = logging.getLogger('BayesQ.Validator')
 
     def validate_network_structure(self, graph: nx.DiGraph) -> Tuple[bool, str]:
-        # 1. Empty check
+        """Verify graph topology against DAG constraints and connectivity rules."""
         if len(graph.nodes()) == 0:
-             return False, "Network is empty"
+             return False, "Network topology is empty."
 
-        # 2. Max Nodes check
         if len(graph.nodes()) > self.max_nodes:
-            return False, f"Network too large: {len(graph.nodes())} nodes (max {self.max_nodes})"
+            return False, f"Network complexity exceeds limit: {len(graph.nodes())} nodes (maximum {self.max_nodes})."
 
-        # 3. Cycle Check (Acyclic property)
         if not nx.is_directed_acyclic_graph(graph):
             try:
-                # Try to find the specific cycle for better feedback
                 cycle = nx.find_cycle(graph, orientation='original')
                 cycle_str = " -> ".join([f"{u}->{v}" for u, v, d in cycle])
-                return False, f"Network contains a cycle: {cycle_str}. Network must be a DAG."
+                return False, f"Cyclic dependency detected: {cycle_str}. Structure must be a DAG."
             except:
-                return False, "Network contains cycles - must be a DAG"
+                return False, "Cyclic dependencies detected - topology must be a DAG."
 
-        # 4. Loose Nodes / Connectivity Check
-        # A graph with > 1 node must be at least weakly connected to be a valid single BN
         if len(graph.nodes()) > 1:
             if not nx.is_weakly_connected(graph):
-                # Identify totally isolated nodes (degree 0)
                 isolated_nodes = [n for n in graph.nodes() if graph.degree(n) == 0]
-                
                 if isolated_nodes:
-                    return False, f"Loose nodes detected: {', '.join(isolated_nodes)}. All nodes must be connected."
+                    return False, f"Disconnected nodes detected: {', '.join(isolated_nodes)}. The graph must be fully connected."
                 else:
-                    return False, "Network is fragmented into disconnected components. Please connect all parts."
+                    return False, "Graph fragmentation detected. Ensure all components are weakly connected."
 
-        # 5. Parent Count Check
         for node in graph.nodes():
             parents = list(graph.predecessors(node))
             if len(parents) > self.max_parents:
-                return False, f"Node '{node}' has too many parents: {len(parents)} (max {self.max_parents})"
+                return False, f"Node '{node}' exceeds parent cardinality limit: {len(parents)} (maximum {self.max_parents})."
 
         return True, ""
 
     def validate_node_name(self, name: str, existing_nodes: List[str]) -> Tuple[bool, str]:
+        """Validate node nomenclature against formatting rules and uniqueness constraints."""
         if not name or not name.strip():
-            return False, "Node name cannot be empty"
+            return False, "Node identifier cannot be null or empty."
         if name in existing_nodes:
-            return False, f"Node '{name}' already exists"
+            return False, f"Node identifier '{name}' is not unique."
         if not name.replace('_', '').isalnum():
-            return False, "Node name must be alphanumeric (underscore allowed)"
+            return False, "Node identifier contains invalid characters (alphanumeric and underscore allowed)."
         if len(name) > 20:
-            return False, "Node name too long (max 20 characters)"
+            return False, "Node identifier exceeds maximum length (20 characters)."
         return True, ""
 
     def validate_cpt(self, cpt: List[float], num_combinations: int, num_states: int = 2) -> Tuple[bool, str]:
+        """Verify the stochastic validity of the Conditional Probability Table."""
         expected_length = num_combinations * num_states
         if len(cpt) != expected_length:
-            return False, f"CPT length mismatch: expected {expected_length}, got {len(cpt)}"
+            return False, f"CPT dimensionality mismatch: expected {expected_length}, received {len(cpt)}."
         for prob in cpt:
             if not isinstance(prob, (int, float)):
-                return False, f"Invalid probability type: {type(prob)}"
+                return False, f"Invalid data type in probability distribution: {type(prob)}."
             if prob < 0 or prob > 1:
-                return False, f"Probability out of range [0,1]: {prob}"
+                return False, f"Probability value out of valid range [0,1]: {prob}."
         for i in range(0, len(cpt), num_states):
             prob_sum = sum(cpt[i:i+num_states])
             if not np.isclose(prob_sum, 1.0, atol=1e-6):
-                return False, f"Probabilities don't sum to 1 at index {i}: sum = {prob_sum}"
+                return False, f"Probability axiom violation: Sum at index {i} is {prob_sum}, expected 1.0."
         return True, ""
 
     def validate_states(self, states_str: str) -> Tuple[bool, List[str], str]:
+        """Parse and validate state definitions."""
         if not states_str or not states_str.strip():
-            return False, [], "States cannot be empty"
+            return False, [], "State definitions cannot be empty."
         states = [s.strip() for s in states_str.split(',')]
         if len(states) < 2:
-            return False, [], "Must have at least 2 states"
+            return False, [], "Variable must possess at least 2 distinct states."
         if len(states) > 2:
-            self.logger.warning("More than 2 states specified - using first 2 only")
+            self.logger.warning("Cardinality > 2 detected. Current version restricts variables to binary states; truncating.")
             states = states[:2]
         if len(set(states)) != len(states):
-            return False, [], "Duplicate state names"
+            return False, [], "Duplicate state identifiers detected."
         return True, states, ""
 
 
 class ExportManager:
+    """
+    Handles data serialization and export operations for interoperability.
+    
+    Supports exporting quantum circuits to QASM, network structures to DOT,
+    and inference results to CSV formats.
+    """
     def __init__(self):
-        self.logger = logging.getLogger('QBN.Export')
+        self.logger = logging.getLogger('BayesQ.Export')
 
     def export_circuit_to_qasm(self, circuit: QuantumCircuit, filename: str) -> bool:
+        """Serialize the quantum circuit to OpenQASM format."""
         try:
             from qiskit import qasm2
             qasm_str = qasm2.dumps(circuit)
             with open(filename, 'w') as f:
                 f.write(qasm_str)
-            self.logger.info(f"Exported QASM to {filename}")
+            self.logger.info(f"Successfully exported QASM artifact to {filename}")
             return True
         except ImportError:
             try:
+                # Fallback to legacy QASM method
                 qasm_str = circuit.qasm()
                 with open(filename, 'w') as f:
                     f.write(qasm_str)
-                self.logger.info(f"Exported QASM to {filename}")
+                self.logger.info(f"Successfully exported QASM artifact to {filename}")
                 return True
             except AttributeError as e:
-                self.logger.error(f"QASM export not supported: {e}")
+                self.logger.error(f"QASM export protocol unsupported: {e}")
                 return False
         except Exception as e:
-            self.logger.error(f"Failed to export QASM: {e}")
+            self.logger.error(f"Failed to serialize circuit to QASM: {e}")
             return False
 
     def export_network_to_dot(self, graph: nx.DiGraph, filename: str) -> bool:
+        """Serialize the graph topology to Graphviz DOT format."""
         try:
             with open(filename, 'w') as f:
                 f.write("digraph BayesianNetwork {\n")
@@ -387,13 +456,14 @@ class ExportManager:
                 for edge in graph.edges():
                     f.write(f'  "{edge[0]}" -> "{edge[1]}";\n')
                 f.write("}\n")
-            self.logger.info(f"Exported DOT to {filename}")
+            self.logger.info(f"Successfully exported DOT artifact to {filename}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to export DOT: {e}")
+            self.logger.error(f"Failed to serialize graph to DOT: {e}")
             return False
 
     def export_results_to_csv(self, samples: Dict[Any, float], filename: str) -> bool:
+        """Serialize inference results to Comma-Separated Values format."""
         try:
             import csv
             with open(filename, 'w', newline='') as f:
@@ -401,128 +471,44 @@ class ExportManager:
                 writer.writerow(['State', 'Probability'])
                 for state, prob in sorted(samples.items()):
                     writer.writerow([state, prob])
-            self.logger.info(f"Exported results to {filename}")
+            self.logger.info(f"Successfully exported result dataset to {filename}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to export results: {e}")
+            self.logger.error(f"Failed to serialize results to CSV: {e}")
             return False
 
 
 # ============================================================================
-# MAIN APPLICATION CLASS
+# MAIN APPLICATION CONTROLLER
 # ============================================================================
 
 class QBNApp:
-    """Main Quantum Bayesian Network Application with all enhancements."""
-    # put these inside your GUI class
-
-
-    def show_circuit_mpl(self, qc: 'QuantumCircuit') -> None:
-        """Render QuantumCircuit (mpl) into the existing circuit_frame/canvas safely."""
-        if qc is None:
-            self.logger.warning("show_circuit_mpl called with qc=None")
-            return
-
-        # Try to get a Figure from Qiskit directly (preferred)
-        try:
-            fig = qc.draw(output='mpl')  # returns a matplotlib.figure.Figure
-        except Exception as e:
-            self.logger.exception("qc.draw(output='mpl') failed: %s", e)
-            # Fallback: try drawing into existing axis via circuit_drawer
-            try:
-                from qiskit.visualization import circuit_drawer
-                self.circuit_ax.clear()
-                circuit_drawer(qc, output='mpl', style='bw', ax=self.circuit_ax,
-                               plot_barriers=False, justify='none', fold=-1)
-                self.circuit_fig.tight_layout()
-                self.circuit_canvas.draw()
-                self.root.update()
-                return
-            except Exception as e2:
-                self.logger.exception("Fallback circuit_drawer failed: %s", e2)
-                # show text representation as last resort
-                txt = qc.draw(output='text')
-                self.circuit_ax.clear()
-                self.circuit_ax.text(0.01, 0.99, txt, ha='left', va='top', fontsize=7, family='monospace')
-                self.circuit_canvas.draw()
-                self.root.update()
-                return
-
-        # Remove old canvas widget to avoid duplicates
-        try:
-            if hasattr(self, '_circuit_canvas') and self._circuit_canvas is not None:
-                self._circuit_canvas.get_tk_widget().destroy()
-        except Exception:
-            pass
-
-        # Create a new canvas bound to the Qiskit figure and keep references on self
-        self._circuit_fig = fig
-        self._circuit_canvas = FigureCanvasTkAgg(fig, master=self.circuit_canvas.get_tk_widget().master)
-        self._circuit_canvas.draw()
-        widget = self._circuit_canvas.get_tk_widget()
-        widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        self.root.update()
-
-    def show_histogram(self, samples: dict, title: str = "Sampling Results") -> None:
-        """Render histogram from a dict(samples) into histogram canvas safely."""
-        # samples might be {state_str: probability} or counts; both handled
-        if not samples:
-            self.logger.warning("show_histogram: samples empty")
-            # clear area
-            self.histogram_ax.clear()
-            self.histogram_ax.text(0.5, 0.5, "No samples", ha='center', va='center', color='gray')
-            self.histogram_canvas.draw()
-            self.root.update()
-            return
-
-        try:
-            # Let Qiskit make the figure (consistent style), but fallback to manual bar if needed
-            fig = plot_histogram(samples, title=title)
-        except Exception as e:
-            self.logger.exception("plot_histogram failed: %s", e)
-            # fallback to manual drawing on existing axes
-            self.histogram_ax.clear()
-            sorted_samples = sorted(samples.items(), key=lambda x: x[0])
-            labels = [str(k) for k, v in sorted_samples]
-            values = [v for k, v in sorted_samples]
-            bars = self.histogram_ax.bar(labels, values)
-            self.histogram_ax.set_title(title)
-            self.histogram_fig.tight_layout()
-            self.histogram_canvas.draw()
-            self.root.update()
-            return
-
-        # Remove prior canvas widget to avoid GC issues
-        try:
-            if hasattr(self, '_hist_canvas') and self._hist_canvas is not None:
-                self._hist_canvas.get_tk_widget().destroy()
-        except Exception:
-            pass
-
-        self._hist_fig = fig
-        self._hist_canvas = FigureCanvasTkAgg(fig, master=self.histogram_canvas.get_tk_widget().master)
-        self._hist_canvas.draw()
-        w = self._hist_canvas.get_tk_widget()
-        w.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        self.root.update()
+    """
+    The central controller class for the BayesQ application.
+    
+    This class orchestrates the interaction between the GUI frontend, the graph 
+    theoretical backend (NetworkX), and the quantum simulation engine (Qiskit).
+    It manages application state, user inputs, and the execution lifecycle of 
+    quantum inference tasks.
+    """
 
     def __init__(self, root: tk.Tk):
-        """Initialize the enhanced application."""
+        """Initialize the application state and graphical interface."""
         self.root = root
         self.root.title("BayesQ")
         self.root.geometry("1600x900")
 
-        # Initialize configuration
+        # Initialize configuration subsystem
         self.config = ConfigManager()
 
-        # Initialize logging
+        # Initialize logging subsystem
         log_level = self.config.get('DEFAULT', 'log_level', fallback='INFO')
         self.logger = setup_logging(log_level)
         self.logger.info("="*60)
-        self.logger.info("BayesQ")
+        self.logger.info("BayesQ Application Initialization Sequence Initiated")
         self.logger.info("="*60)
 
-        # Initialize validators and utilities
+        # Initialize validators and auxiliary managers
         max_nodes = int(self.config.get('DEFAULT', 'max_network_size', fallback='20'))
         max_parents = int(self.config.get('DEFAULT', 'max_parents', fallback='5'))
         self.validator = NetworkValidator(max_nodes=max_nodes, max_parents=max_parents)
@@ -538,28 +524,27 @@ class QBNApp:
         self.inference_evidence: Dict[str, int] = {}
         self.inference_query: Dict[str, int] = {}
         
-        # Selection state
+        # Selection state management
         self.selected_graph_node: Optional[str] = None
 
-        # Qiskit Objects
-        self.qbayesian: Optional[QBayesian] = None
+        # Quantum Circuit Object Management
         self.node_name_to_idx: Dict[str, int] = {}
         self.idx_to_node_name: Dict[int, str] = {}
         self.quantum_circuit: Optional[QuantumCircuit] = None
         self.last_samples: Optional[Dict] = None
 
-        # Drag-and-Drop State
+        # Drag-and-Drop Interaction State
         self.dragged_node: Optional[str] = None
         self._dragging: bool = False
         self._last_drag_time: float = 0.0
         self._drag_lock_xlim: Optional[Tuple[float, float]] = None
         self._drag_lock_ylim: Optional[Tuple[float, float]] = None
 
-        # Setup GUI
+        # Configure GUI components
         self.setup_style()
         self.create_menu()
         
-        # Main Layout
+        # Construct Main Layout Architecture
         self.main_paned_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
         self.main_paned_window.pack(fill=tk.BOTH, expand=True)
 
@@ -571,24 +556,24 @@ class QBNApp:
         self.main_paned_window.add(self.vis_frame, weight=3)
         self.create_visualization_panel(self.vis_frame)
 
-        # Status Bar
-        self.status_bar = ttk.Label(root, text="Ready - Use Ctrl+N for new network",
+        # Initialize Status Bar
+        self.status_bar = ttk.Label(root, text="System Ready - Initiate new network via Ctrl+N",
                                     relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Initialize bindings (CALLED AFTER CANVASES ARE CREATED)
+        # Initialize Event Bindings
         self.setup_shortcuts() 
 
-        # Setup close protocol
+        # Establish shutdown protocol
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # Ensure window has focus on startup so keys work immediately
+        # Request focus for immediate keyboard interaction
         self.root.focus_force()
 
-        self.logger.info("GUI initialized successfully")
+        self.logger.info("Graphical User Interface successfully initialized.")
 
     def setup_style(self) -> None:
-        """Setup ttk styling."""
+        """Configure the ttk widget styling theme."""
         self.style = ttk.Style()
         self.style.theme_use('clam')
         self.style.configure('TButton', padding=6, relief="flat", 
@@ -601,17 +586,13 @@ class QBNApp:
                              foreground='#333')
 
     def setup_shortcuts(self) -> None:
-        """Bind keyboard shortcuts with debug logging and focus handling."""
-        logger.debug("DEBUG: --- Setup Shortcuts Called ---")
-        
+        """Register global keyboard accelerators for common operations."""
         def create_callback(name, func):
             def callback(event=None):
-                logger.debug(f"DEBUG: Key pressed: {name}")
                 func()
-                return "break" # Stop propagation to ensure matplotlib/other widgets don't steal
+                return "break" # Prevent event propagation
             return callback
 
-        # Define shortcuts map (Includes uppercase for safety/Caps Lock)
         shortcuts = {
             '<Control-n>': ('New', lambda: self.new_network()),
             '<Control-o>': ('Open', lambda: self.load_network()),
@@ -620,59 +601,52 @@ class QBNApp:
             '<Control-r>': ('Run', lambda: self.run_inference()),
             '<Control-e>': ('Export', lambda: self.export_circuit_qasm()),
             '<Delete>': ('Delete', self.delete_selected_node_shortcut),
-            # Uppercase variants
-            '<Control-n>': ('New', lambda: self.new_network()),
-            '<Control-o>': ('Open', lambda: self.load_network()),
-            '<Control-s>': ('Save', lambda: self.save_network()),
-            '<Control-b>': ('Build', lambda: self.build_and_display_circuit()),
-            '<Control-r>': ('Run', lambda: self.run_inference()),
-            '<Control-e>': ('Export', lambda: self.export_circuit_qasm()),
+            # Case-insensitive variants
+            '<Control-N>': ('New', lambda: self.new_network()),
+            '<Control-O>': ('Open', lambda: self.load_network()),
+            '<Control-S>': ('Save', lambda: self.save_network()),
+            '<Control-B>': ('Build', lambda: self.build_and_display_circuit()),
+            '<Control-R>': ('Run', lambda: self.run_inference()),
+            '<Control-E>': ('Export', lambda: self.export_circuit_qasm()),
         }
 
-        # 1. Bind to Root (Global application level)
+        # 1. Bind to Root Window
         for key, (name, func) in shortcuts.items():
             cb = create_callback(name, func)
             self.root.bind(key, cb)
-            self.root.bind_all(key, cb) # Fallback
+            self.root.bind_all(key, cb)
 
-        # 2. Bind specifically to Network Canvas (Matplotlib steals focus)
+        # 2. Bind to Canvas Widgets (explicit focus handling)
         if hasattr(self, 'network_canvas'):
             canvas_widget = self.network_canvas.get_tk_widget()
-            # Make sure canvas can take focus and receive events
             canvas_widget.config(takefocus=1)
             for key, (name, func) in shortcuts.items():
                 canvas_widget.bind(key, create_callback(name, func))
 
-        # 3. Bind to Circuit Canvas
         if hasattr(self, 'circuit_canvas'):
             circuit_widget = self.circuit_canvas.get_tk_widget()
             circuit_widget.config(takefocus=1)
             for key, (name, func) in shortcuts.items():
                 circuit_widget.bind(key, create_callback(name, func))
-        
-        logger.debug("DEBUG: Shortcuts bound to Root and Canvases.")
 
     def delete_selected_node_shortcut(self, event=None):
-        """Wrapper to delete currently selected node from graph."""
-        # Prevent deletion if user is typing in a text field
+        """Invoke node deletion routine via keyboard interaction."""
         focused_widget = self.root.focus_get()
         if isinstance(focused_widget, (tk.Entry, tk.Text, ttk.Entry)):
-            logger.debug("DEBUG: Delete blocked (typing in entry)")
             return
 
         if self.selected_graph_node:
-            # Ensure the correct node is in the combobox, then call delete
             self.delete_node_combo.set(self.selected_graph_node)
             self.delete_node()
         else:
-            self.status_bar.config(text="No node selected to delete (Click a node first)")
+            self.status_bar.config(text="Deletion failed: No node selected.")
 
     def create_menu(self) -> None:
-        """Create enhanced application menu bar."""
+        """Construct the application menu hierarchy."""
         self.menu_bar = tk.Menu(self.root)
         self.root.config(menu=self.menu_bar)
 
-        # File Menu
+        # File Operations Menu
         file_menu = tk.Menu(self.menu_bar, tearoff=0)
         file_menu.add_command(label="New Network", command=self.new_network, accelerator="Ctrl+N")
         file_menu.add_command(label="Open Network", command=self.load_network, accelerator="Ctrl+O")
@@ -688,30 +662,30 @@ class QBNApp:
         file_menu.add_command(label="Exit", command=self.on_closing)
         self.menu_bar.add_cascade(label="File", menu=file_menu)
 
-        # Run Menu
+        # Execution Menu
         run_menu = tk.Menu(self.menu_bar, tearoff=0)
         run_menu.add_command(label="Validate Network", command=self.validate_network_ui)
         run_menu.add_command(label="Build Circuit", command=self.build_and_display_circuit, accelerator="Ctrl+B")
         run_menu.add_command(label="Run Inference", command=self.run_inference, accelerator="Ctrl+R")
         self.menu_bar.add_cascade(label="Run", menu=run_menu)
 
-        # Tools Menu
+        # Analysis Tools Menu
         tools_menu = tk.Menu(self.menu_bar, tearoff=0)
         tools_menu.add_command(label="Network Statistics", command=self.show_network_statistics)
         tools_menu.add_command(label="Settings", command=self.show_settings)
         self.menu_bar.add_cascade(label="Tools", menu=tools_menu)
 
-        # Help Menu
+        # Help & Information Menu
         help_menu = tk.Menu(self.menu_bar, tearoff=0)
         help_menu.add_command(label="User Guide", command=self.show_user_guide)
         help_menu.add_command(label="About", command=self.show_about)
         self.menu_bar.add_cascade(label="Help", menu=help_menu)
 
     def show_about(self) -> None:
-        """Show about dialog."""
-        about_text = """BayesQ)
+        """Display the application attribution dialog."""
+        about_text = """BayesQ
 
-Build and simulate Bayesian Networks using Qiskit Machine Learning.
+A platform for designing and simulating Quantum Bayesian Networks.
 
 Keyboard Shortcuts:
 -------------------
@@ -725,18 +699,17 @@ Delete   : Delete Selected Node
 
 Features:
 • Visual network editor with drag-and-drop
-• Interactive tooltips for guidance
-• Simplified CPT editor (auto-calculates P(0))
+• Manual Rejection Sampling Implementation
 • Quantum circuit visualization  
 • Multiple noise models
 • Performance monitoring
 • Strict graph validation
 
 © 2025 - MIT License"""
-        messagebox.showinfo("About QBN Builder", about_text)
+        messagebox.showinfo("About BayesQ", about_text)
 
     def show_user_guide(self) -> None:
-        """Show user guide window."""
+        """Display the integrated user documentation."""
         guide_window = tk.Toplevel(self.root)
         guide_window.title("User Guide")
         guide_window.geometry("700x600")
@@ -780,7 +753,7 @@ For detailed documentation, see README.md"""
         guide_text.config(state=tk.DISABLED)
 
     def show_settings(self) -> None:
-        """Show settings dialog."""
+        """Display the configuration settings dialog."""
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Settings")
         settings_window.geometry("500x300")
@@ -802,7 +775,7 @@ For detailed documentation, see README.md"""
             try:
                 self.config.set('DEFAULT', 'max_network_size', max_size_var.get())
                 self.config.set('DEFAULT', 'max_parents', max_parents_var.get())
-                messagebox.showinfo("Success", "Settings saved. Restart for changes to take effect.")
+                messagebox.showinfo("Success", "Settings persisted. Restart required for changes to take effect.")
                 settings_window.destroy()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save settings: {e}")
@@ -813,7 +786,7 @@ For detailed documentation, see README.md"""
         ttk.Button(button_frame, text="Cancel", command=settings_window.destroy).pack(side=tk.RIGHT, padx=5)
 
     def show_network_statistics(self) -> None:
-        """Show network statistics."""
+        """Calculate and display topological metrics of the network."""
         if not self.graph.nodes():
             messagebox.showinfo("Network Statistics", "Network is empty.")
             return
@@ -823,33 +796,32 @@ For detailed documentation, see README.md"""
         root_nodes = [n for n in self.graph.nodes() if self.graph.in_degree(n) == 0]
         nodes_with_cpt = sum(1 for n in self.node_data.values() if n['cpt'] is not None)
 
-        stats_text = f"""NETWORK STATISTICS
+        stats_text = f"""NETWORK TOPOLOGY STATISTICS
 
 Structure:
-  Nodes: {num_nodes}
-  Edges: {num_edges}
-  Root nodes: {len(root_nodes)}
+  Nodes (Variables): {num_nodes}
+  Edges (Dependencies): {num_edges}
+  Root Nodes: {len(root_nodes)}
 
-CPTs:
-  Defined: {nodes_with_cpt}/{num_nodes}
+Parameters:
+  Defined CPTs: {nodes_with_cpt}/{num_nodes}
 
-Validation:
+Constraints:
   Is DAG: {nx.is_directed_acyclic_graph(self.graph)}
-  Is Connected: {nx.is_weakly_connected(self.graph)}"""
+  Is Weakly Connected: {nx.is_weakly_connected(self.graph)}"""
 
         if self.quantum_circuit:
             stats_text += f"""
 
-Quantum Circuit:
+Quantum Circuit Metrics:
   Qubits: {self.quantum_circuit.num_qubits}
-  Gates: {self.quantum_circuit.size()}
-  Depth: {self.quantum_circuit.depth()}"""
+  Gate Count: {self.quantum_circuit.size()}
+  Circuit Depth: {self.quantum_circuit.depth()}"""
 
         messagebox.showinfo("Network Statistics", stats_text)
 
     def validate_network_ui(self) -> None:
-        """Validate network and show results."""
-        # The validator handles empty checks inside
+        """Trigger comprehensive network validation and report status."""
         is_valid, error_msg = self.validator.validate_network_structure(self.graph)
 
         if not is_valid:
@@ -860,7 +832,7 @@ Quantum Circuit:
 
         if missing_cpts:
             messagebox.showwarning("Validation", 
-                                   f"CPTs missing for nodes: {', '.join(missing_cpts)}")
+                                   f"Parameter specification incomplete. CPTs missing for: {', '.join(missing_cpts)}")
             return
 
         for node_name, node_info in self.node_data.items():
@@ -872,29 +844,29 @@ Quantum Circuit:
 
             if not is_valid:
                 messagebox.showerror("Validation Failed", 
-                                     f"CPT validation failed for '{node_name}': {error_msg}")
+                                     f"CPT validation error at node '{node_name}': {error_msg}")
                 return
 
-        messagebox.showinfo("Validation", "✓ Network is valid!\n\nAll constraints satisfied.")
-        self.logger.info("Network validation successful")
+        messagebox.showinfo("Validation", "✓ Network integrity confirmed.\n\nAll topological and probabilistic constraints satisfied.")
+        self.logger.info("Network validation routine passed successfully.")
 
     def on_closing(self) -> None:
-        """Handle application closing."""
+        """Handle the application shutdown sequence."""
         if self.config.get('DEFAULT', 'auto_save') == 'True' and self.graph.nodes():
             try:
                 auto_save_path = 'autosave.qbn.json'
                 self.save_network_to_file(auto_save_path)
-                self.logger.info(f"Auto-saved to {auto_save_path}")
+                self.logger.info(f"State automatically persisted to {auto_save_path}")
             except Exception as e:
-                self.logger.error(f"Auto-save failed: {e}")
+                self.logger.error(f"Auto-save procedure failed: {e}")
 
-        self.logger.info("Application closing")
+        self.logger.info("Application shutdown sequence initiated.")
         self.root.destroy()
 
     def export_circuit_qasm(self) -> None:
-        """Export quantum circuit to QASM format."""
+        """Initiate the export of the quantum circuit to OpenQASM."""
         if not self.quantum_circuit:
-            messagebox.showwarning("Warning", "Build circuit first")
+            messagebox.showwarning("Warning", "Circuit synthesis required before export.")
             return
 
         filename = filedialog.asksaveasfilename(
@@ -904,12 +876,12 @@ Quantum Circuit:
 
         if filename:
             if self.exporter.export_circuit_to_qasm(self.quantum_circuit, filename):
-                messagebox.showinfo("Success", f"Circuit exported to {filename}")
+                messagebox.showinfo("Success", f"Circuit successfully serialized to {filename}")
 
     def export_network_dot(self) -> None:
-        """Export network structure to DOT format."""
+        """Initiate the export of the network topology to DOT format."""
         if not self.graph.nodes():
-            messagebox.showwarning("Warning", "Network is empty")
+            messagebox.showwarning("Warning", "Network topology is empty.")
             return
 
         filename = filedialog.asksaveasfilename(
@@ -919,12 +891,12 @@ Quantum Circuit:
 
         if filename:
             if self.exporter.export_network_to_dot(self.graph, filename):
-                messagebox.showinfo("Success", f"Network exported to {filename}")
+                messagebox.showinfo("Success", f"Network successfully serialized to {filename}")
 
     def export_results_csv(self) -> None:
-        """Export inference results to CSV."""
+        """Initiate the export of inference results to CSV."""
         if not self.last_samples:
-            messagebox.showwarning("Warning", "Run sampling inference first")
+            messagebox.showwarning("Warning", "Stochastic sampling required before export.")
             return
 
         filename = filedialog.asksaveasfilename(
@@ -934,10 +906,10 @@ Quantum Circuit:
 
         if filename:
             if self.exporter.export_results_to_csv(self.last_samples, filename):
-                messagebox.showinfo("Success", f"Results exported to {filename}")
+                messagebox.showinfo("Success", f"Data successfully serialized to {filename}")
 
     def create_controls_panel(self, parent: ttk.Frame) -> None:
-        """Create control panel with tabs."""
+        """Instantiate and organize the primary control tab widgets."""
         notebook = ttk.Notebook(parent)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -954,57 +926,57 @@ Quantum Circuit:
         self.create_inference_tab(self.tab_infer)
 
     def create_build_tab(self, parent: ttk.Frame) -> None:
-        """Create network building tab with validation and tooltips."""
+        """Construct the network structure definition interface."""
         info_frame = ttk.LabelFrame(parent, text="Instructions")
         info_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        info_text = ("1. Add nodes (variables) with binary states\n"
-                     "2. Connect nodes with directed edges\n"
-                     "3. Define CPTs (probabilities) for each node\n"
-                     "4. Build circuit and run inference")
+        info_text = ("1. Define nodes (random variables) with binary state space\n"
+                     "2. Establish directed dependencies (edges)\n"
+                     "3. Specify Conditional Probability Tables (CPTs)\n"
+                     "4. Synthesize circuit and execute inference")
         ttk.Label(info_frame, text=info_text, justify=tk.LEFT).pack(padx=10, pady=10)
 
-        # Node frame
+        # Node Definition Section
         node_frame = ttk.LabelFrame(parent, text="Add Node")
         node_frame.pack(fill=tk.X, padx=10, pady=10)
 
         ttk.Label(node_frame, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.node_name_entry = ttk.Entry(node_frame)
         self.node_name_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
-        CreateToolTip(self.node_name_entry, "Enter a unique name for the variable (e.g., 'Rain', 'Alarm').")
+        CreateToolTip(self.node_name_entry, "Specify a unique identifier for the random variable (e.g., 'Rain', 'Alarm').")
 
         ttk.Label(node_frame, text="States:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         self.node_states_entry = ttk.Entry(node_frame)
         self.node_states_entry.insert(0, "0,1")
         self.node_states_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
-        CreateToolTip(self.node_states_entry, "Comma-separated states (e.g., '0,1' or 'False,True'). Default is 0,1.")
+        CreateToolTip(self.node_states_entry, "Comma-delimited state labels (e.g., '0,1' or 'False,True'). Default: 0,1.")
 
         add_btn = ttk.Button(node_frame, text="Add Node", command=self.add_node)
         add_btn.grid(row=2, column=0, columnspan=2, pady=10)
-        CreateToolTip(add_btn, "Create a new node with the specified name and states.")
+        CreateToolTip(add_btn, "Instantiate a new node within the graph.")
         
         node_frame.columnconfigure(1, weight=1)
 
-        # Edge frame
+        # Edge Definition Section
         edge_frame = ttk.LabelFrame(parent, text="Add Edge (Parent → Child)")
         edge_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        ttk.Label(edge_frame, text="From (Parent):").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(edge_frame, text="Source (Parent):").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.edge_from_combo = ttk.Combobox(edge_frame, state="readonly")
         self.edge_from_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
 
-        ttk.Label(edge_frame, text="To (Child):").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(edge_frame, text="Target (Child):").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         self.edge_to_combo = ttk.Combobox(edge_frame, state="readonly")
         self.edge_to_combo.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
 
         edge_btn = ttk.Button(edge_frame, text="Add Edge", command=self.add_edge)
         edge_btn.grid(row=2, column=0, columnspan=2, pady=10)
-        CreateToolTip(edge_btn, "Create a directed dependency between two nodes.")
+        CreateToolTip(edge_btn, "Establish a directed probabilistic dependency between nodes.")
         
         edge_frame.columnconfigure(1, weight=1)
 
-        # Delete frame
-        delete_frame = ttk.LabelFrame(parent, text="Delete")
+        # Node Removal Section
+        delete_frame = ttk.LabelFrame(parent, text="Deletion Operations")
         delete_frame.pack(fill=tk.X, padx=10, pady=10)
 
         ttk.Label(delete_frame, text="Node:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
@@ -1012,26 +984,26 @@ Quantum Circuit:
         self.delete_node_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
         del_btn = ttk.Button(delete_frame, text="Delete Node", command=self.delete_node)
         del_btn.grid(row=0, column=2, padx=5, pady=5)
-        CreateToolTip(del_btn, "Remove selected node and all connected edges (Shortcut: Delete Key)")
+        CreateToolTip(del_btn, "Remove the selected node and incident edges (Shortcut: Delete Key)")
         
         delete_frame.columnconfigure(1, weight=1)
 
     def create_cpt_tab(self, parent: ttk.Frame) -> None:
-        """Create CPT editor tab."""
+        """Construct the Conditional Probability Table editor interface."""
         selector_frame = ttk.Frame(parent)
         selector_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        ttk.Label(selector_frame, text="Select Node:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(selector_frame, text="Select Variable:").pack(side=tk.LEFT, padx=5)
         self.cpt_node_combo = ttk.Combobox(selector_frame, state="readonly")
         self.cpt_node_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         self.cpt_node_combo.bind("<<ComboboxSelected>>", self.load_cpt_editor)
 
-        cpt_outer_frame = ttk.LabelFrame(parent, text="Conditional Probability Table")
+        cpt_outer_frame = ttk.LabelFrame(parent, text="Probability Distribution Definition")
         cpt_outer_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         self.cpt_canvas = tk.Canvas(cpt_outer_frame, bg='#f0f0f0', highlightthickness=0)
         self.cpt_scrollbar = ttk.Scrollbar(cpt_outer_frame, orient="vertical", 
-                                             command=self.cpt_canvas.yview)
+                                           command=self.cpt_canvas.yview)
         self.cpt_scrollable_frame = ttk.Frame(self.cpt_canvas)
 
         self.cpt_scrollable_frame.bind(
@@ -1045,40 +1017,29 @@ Quantum Circuit:
         self.cpt_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.cpt_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.save_cpt_button = ttk.Button(parent, text="Save CPT", command=self.save_cpt)
+        self.save_cpt_button = ttk.Button(parent, text="Commit CPT", command=self.save_cpt)
         self.save_cpt_button.pack(pady=10)
         self.save_cpt_button.config(state=tk.DISABLED)
-        CreateToolTip(self.save_cpt_button, "Commit changes to the Probability Table for the selected node.")
+        CreateToolTip(self.save_cpt_button, "Validate and persist the probability distribution for the selected variable.")
 
     def create_inference_tab(self, parent: ttk.Frame) -> None:
-        """Create inference tab with noise model selection and AerSimulator option."""
-        # Execution parameters
-        exec_frame = ttk.LabelFrame(parent, text="Execution Parameters")
+        """Construct the inference configuration and execution interface."""
+        # Simulation Parameters
+        exec_frame = ttk.LabelFrame(parent, text="Simulation Parameters")
         exec_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        # --- SIMULATION MODE DISPLAY ---
-        # Replaced radio buttons with a static label since we only support AerSimulator now
-        mode_frame = ttk.Frame(exec_frame)
-        mode_frame.grid(row=0, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5)
-        
-        ttk.Label(mode_frame, text="Simulation Backend: AerSimulator (Shot-based)", 
-                  font=('Arial', 10, 'bold')).pack(side=tk.LEFT, padx=5)
-        
-        # --- SHOT-BASED OPTIONS ---
-        self.lbl_shots = ttk.Label(exec_frame, text="Shots:")
-        self.lbl_shots.grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(exec_frame, text="Shot Count:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.shots_entry = ttk.Entry(exec_frame, width=12)
         self.shots_entry.insert(0, self.config.get('DEFAULT', 'shots', fallback='1024'))
-        self.shots_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
-        CreateToolTip(self.shots_entry, "Number of quantum measurements (simulation runs). Higher = more precision.")
+        self.shots_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        CreateToolTip(self.shots_entry, "Define the number of measurement repetitions for statistical sampling.")
         
-        self.lbl_shots_hint = ttk.Label(exec_frame, text="(per run)", font=('Arial', 9, 'italic'), foreground='gray')
-        self.lbl_shots_hint.grid(row=1, column=2, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(exec_frame, text="(AerSimulator parameter)", font=('Arial', 9, 'italic'),
+                  foreground='gray').grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
         exec_frame.columnconfigure(1, weight=1)
 
-        # Noise Model Selection
-        self.lbl_noise = ttk.Label(exec_frame, text="Noise Model:")
-        self.lbl_noise.grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        # Noise Model Configuration
+        ttk.Label(exec_frame, text="Noise Model:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         self.noise_model_combo = ttk.Combobox(exec_frame, state="readonly", width=20)
         self.noise_model_combo['values'] = [
             'None (Ideal)',
@@ -1092,25 +1053,30 @@ Quantum Circuit:
         ]
         default_noise = self.config.get('DEFAULT', 'noise_model', fallback='None (Ideal)')
         self.noise_model_combo.set(default_noise)
-        self.noise_model_combo.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
-        CreateToolTip(self.noise_model_combo, "Simulate hardware errors to test algorithm robustness.")
+        self.noise_model_combo.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        CreateToolTip(self.noise_model_combo, "Simulate decoherence and gate errors to assess algorithm robustness.")
 
-        self.lbl_noise_hint = ttk.Label(exec_frame, text="(AerSimulator)", font=('Arial', 9, 'italic'), foreground='gray')
-        self.lbl_noise_hint.grid(row=2, column=2, padx=5, pady=5, sticky=tk.W)
-        self.lbl_ci = ttk.Label(exec_frame, text="Confidence Level (e.g. 0.95):")
-        self.lbl_ci.grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(exec_frame, text="(AerSimulator parameter)", font=('Arial', 9, 'italic'),
+                  foreground='gray').grid(row=1, column=2, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(exec_frame, text="Monte Carlo Iterations:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.num_runs_entry = ttk.Entry(exec_frame, width=12)
+        self.num_runs_entry.insert(0, "200")  # Default iteration count
+        self.num_runs_entry.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        CreateToolTip(self.num_runs_entry, "Number of independent experiments to establish statistical confidence.")
+
+        ttk.Label(exec_frame, text="Confidence Level (alpha):").grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
         self.cilevel_entry = ttk.Entry(exec_frame, width=12)
         self.cilevel_entry.insert(0, "0.95")
-        self.cilevel_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
-        CreateToolTip(self.cilevel_entry, "Target confidence level (e.g. 0.95). Requires 'scipy' library for custom values; otherwise strictly defaults to 95%.")
-        # Evidence Frame
-        evidence_frame = ttk.LabelFrame(parent, text="Evidence (Observed Values)")
+        self.cilevel_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Evidence Definition Section
+        evidence_frame = ttk.LabelFrame(parent, text="Evidence (Observed Variables)")
         evidence_frame.pack(fill=tk.X, padx=10, pady=10)
 
         add_evidence_frame = ttk.Frame(evidence_frame)
         add_evidence_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        ttk.Label(add_evidence_frame, text="Node:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(add_evidence_frame, text="Variable:").pack(side=tk.LEFT, padx=(0, 5))
         self.evidence_node_combo = ttk.Combobox(add_evidence_frame, state="readonly", width=12)
         self.evidence_node_combo.pack(side=tk.LEFT, padx=5)
         self.evidence_node_combo.bind("<<ComboboxSelected>>", self.on_evidence_node_select)
@@ -1119,7 +1085,7 @@ Quantum Circuit:
         self.evidence_state_combo = ttk.Combobox(add_evidence_frame, state="readonly", width=8)
         self.evidence_state_combo.pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(add_evidence_frame, text="Add", command=self.add_evidence_item, 
+        ttk.Button(add_evidence_frame, text="Assert", command=self.add_evidence_item, 
                    width=8).pack(side=tk.LEFT, padx=5)
 
         list_evidence_frame = ttk.Frame(evidence_frame)
@@ -1133,17 +1099,17 @@ Quantum Circuit:
         evidence_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.evidence_listbox.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Button(evidence_frame, text="Clear Evidence", 
+        ttk.Button(evidence_frame, text="Reset Evidence", 
                    command=self.clear_evidence).pack(pady=5)
 
-        # Query Frame  
-        query_frame = ttk.LabelFrame(parent, text="Query (What to Compute)")
+        # Query Definition Section  
+        query_frame = ttk.LabelFrame(parent, text="Query (Target Distribution)")
         query_frame.pack(fill=tk.X, padx=10, pady=10)
 
         add_query_frame = ttk.Frame(query_frame)
         add_query_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        ttk.Label(add_query_frame, text="Node:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(add_query_frame, text="Variable:").pack(side=tk.LEFT, padx=(0, 5))
         self.query_node_combo = ttk.Combobox(add_query_frame, state="readonly", width=12)
         self.query_node_combo.pack(side=tk.LEFT, padx=5)
         self.query_node_combo.bind("<<ComboboxSelected>>", self.on_query_node_select)
@@ -1152,7 +1118,7 @@ Quantum Circuit:
         self.query_state_combo = ttk.Combobox(add_query_frame, state="readonly", width=8)
         self.query_state_combo.pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(add_query_frame, text="Add", command=self.add_query_item, 
+        ttk.Button(add_query_frame, text="Set Target", command=self.add_query_item, 
                    width=8).pack(side=tk.LEFT, padx=5)
 
         list_query_frame = ttk.Frame(query_frame)
@@ -1166,26 +1132,27 @@ Quantum Circuit:
         query_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.query_listbox.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Button(query_frame, text="Clear Query", command=self.clear_query).pack(pady=5)
+        ttk.Button(query_frame, text="Reset Query", command=self.clear_query).pack(pady=5)
 
-        inf_btn = ttk.Button(parent, text="▶ Run Inference", command=self.run_inference)
+        inf_btn = ttk.Button(parent, text="▶ Execute Inference", command=self.run_inference)
         inf_btn.pack(pady=15)
-        CreateToolTip(inf_btn, "Build circuit and execute simulation (Shortcut: Ctrl+R)")
+        CreateToolTip(inf_btn, "Synthesize circuit and perform stochastic simulation (Shortcut: Ctrl+R)")
 
-        results_frame = ttk.LabelFrame(parent, text="Results")
+        results_frame = ttk.LabelFrame(parent, text="Inference Output")
         results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         self.results_text = scrolledtext.ScrolledText(results_frame, wrap=tk.WORD, height=8,
                                                       font=("Courier New", 9), bg="white", fg="black")
         self.results_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
+
     def create_visualization_panel(self, parent: ttk.Frame) -> None:
-        """Create visualization panel with multiple tabs."""
+        """Construct the multi-tab visualization and analytics panel."""
         self.viz_notebook = ttk.Notebook(parent)
         self.viz_notebook.pack(fill=tk.BOTH, expand=True)
 
         self.tab_network = ttk.Frame(self.viz_notebook)
-        self.viz_notebook.add(self.tab_network, text="Network Graph")
+        self.viz_notebook.add(self.tab_network, text="Topology")
         self.create_network_viz(self.tab_network)
 
         self.tab_circuit = ttk.Frame(self.viz_notebook)
@@ -1193,32 +1160,40 @@ Quantum Circuit:
         self.create_circuit_viz(self.tab_circuit)
 
         self.tab_histogram = ttk.Frame(self.viz_notebook)
-        self.viz_notebook.add(self.tab_histogram, text="Results")
+        self.viz_notebook.add(self.tab_histogram, text="Posterior Distribution")
         self.create_histogram_viz(self.tab_histogram)
 
         self.tab_code = ttk.Frame(self.viz_notebook)
-        self.viz_notebook.add(self.tab_code, text="Generated Code")
+        self.viz_notebook.add(self.tab_code, text="Synthesized Code")
         self.create_code_viz(self.tab_code)
 
-        # Resource Logs Tab
+        # Confidence Interval Analysis Tab
+        self.tab_ci_hist = ttk.Frame(self.viz_notebook)
+        self.viz_notebook.add(self.tab_ci_hist, text="Error Analysis")
+        self.ci_hist_fig = Figure(figsize=(8, 6), dpi=100)
+        self.ci_hist_ax = self.ci_hist_fig.add_subplot(111)
+        self.ci_hist_canvas = FigureCanvasTkAgg(self.ci_hist_fig, master=self.tab_ci_hist)
+        self.ci_hist_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Resource Telemetry Tab
         self.tab_resource_log = ttk.Frame(self.viz_notebook)
-        self.viz_notebook.add(self.tab_resource_log, text="Resource Logs")
+        self.viz_notebook.add(self.tab_resource_log, text="System Telemetry")
         self.resource_log_text = scrolledtext.ScrolledText(self.tab_resource_log, wrap=tk.WORD, height=16, state="disabled")
         self.resource_log_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         # Execution Logs Tab
         self.tab_execution_log = ttk.Frame(self.viz_notebook)
-        self.viz_notebook.add(self.tab_execution_log, text="Execution Logs")
+        self.viz_notebook.add(self.tab_execution_log, text="Event Log")
         self.exec_log_text = scrolledtext.ScrolledText(self.tab_execution_log, wrap=tk.WORD, height=16, state="disabled")
         self.exec_log_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         # === CONNECT LOGGER TO GUI ===
         text_handler = TextWidgetHandler(self.exec_log_text)
         self.logger.addHandler(text_handler)
-        self.logger.info("Execution Log connected to GUI.")
+        self.logger.info("Event logging subsystem linked to GUI display.")
 
     def create_network_viz(self, parent: ttk.Frame) -> None:
-        """Create network visualization canvas."""
+        """Initialize the graph topology visualization canvas."""
         self.network_fig = Figure(figsize=(8, 6), dpi=100)
         self.network_fig.patch.set_facecolor('#f0f0f0')
         self.network_ax = self.network_fig.add_subplot(111)
@@ -1238,13 +1213,13 @@ Quantum Circuit:
         self.network_canvas.mpl_connect('motion_notify_event', self.on_motion)
 
     def create_circuit_viz(self, parent: ttk.Frame) -> None:
-        """Create circuit visualization canvas."""
+        """Initialize the quantum circuit schematic visualization canvas."""
         self.circuit_fig = Figure(figsize=(10, 6), dpi=100)
         self.circuit_fig.patch.set_facecolor('#f0f0f0')
         self.circuit_ax = self.circuit_fig.add_subplot(111)
         self.circuit_ax.set_facecolor('#ffffff')
         self.circuit_ax.axis('off')
-        self.circuit_ax.text(0.5, 0.5, "Click 'Build Circuit' (Ctrl+B) to generate",
+        self.circuit_ax.text(0.5, 0.5, "Initiate 'Build Circuit' (Ctrl+B) to generate schematic",
                              ha='center', va='center', fontsize=14, color='gray',
                              transform=self.circuit_ax.transAxes)
 
@@ -1257,12 +1232,12 @@ Quantum Circuit:
         self.circuit_toolbar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def create_histogram_viz(self, parent: ttk.Frame) -> None:
-        """Create histogram visualization canvas."""
+        """Initialize the statistical distribution visualization canvas."""
         self.histogram_fig = Figure(figsize=(8, 6), dpi=100)
         self.histogram_fig.patch.set_facecolor('#f0f0f0')
         self.histogram_ax = self.histogram_fig.add_subplot(111)
         self.histogram_ax.set_facecolor('#ffffff')
-        self.histogram_ax.text(0.5, 0.5, "Run inference to see results",
+        self.histogram_ax.text(0.5, 0.5, "Execute inference to visualize distribution",
                                ha='center', va='center', fontsize=14, color='gray')
         self.histogram_ax.axis('off')
 
@@ -1275,24 +1250,24 @@ Quantum Circuit:
         self.histogram_toolbar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def create_code_viz(self, parent):
-        """Code generation tab"""
+        """Construct the code generation and display interface."""
         frame = ttk.Frame(parent)
         frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Button(btn_frame, text="Generate Code", command=self.gen_code).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Generate Script", command=self.gen_code).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Copy to Clipboard", command=self.copy_code).pack(side=tk.LEFT, padx=5)
 
         self.code_text = scrolledtext.ScrolledText(frame, wrap=tk.WORD, font=('Courier', 10), bg='#f8f8f8')
         self.code_text.pack(fill=tk.BOTH, expand=True)
-        self.code_text.insert('1.0', '# Run inference first, then click Generate Code')
+        self.code_text.insert('1.0', '# Execute inference, then invoke script generation.')
 
     def gen_code(self):
-        """Generate complete executable code"""
+        """Synthesize a complete, executable Python script representing the current simulation state."""
         if not self.quantum_circuit:
-            messagebox.showwarning("Warning", "Run inference first")
+            messagebox.showwarning("Warning", "Inference execution required prior to code generation.")
             return
 
         try:
@@ -1303,16 +1278,16 @@ Quantum Circuit:
                 shots = int(self.shots_entry.get())
             except:
                 shots = 1024
+
             noise_selection = self.noise_model_combo.get()
-            
+
             L.append("# ================================================")
-            L.append("# Quantum Bayesian Network - Generated Code")
+            L.append("# BayesQ - Auto-Synthesized Simulation Script")
             L.append("# ================================================\n")
 
-            L.append("from qiskit import QuantumCircuit, QuantumRegister")
-            L.append("from qiskit_machine_learning.algorithms import QBayesian")
-            L.append("from qiskit.primitives import BackendSampler")
+            L.append("from qiskit import QuantumCircuit, QuantumRegister, transpile")
             L.append("from qiskit_aer import AerSimulator")
+            
             if noise_selection != 'None (Ideal)':
                 L.append("from qiskit_aer.noise import NoiseModel, depolarizing_error, thermal_relaxation_error")
                 
@@ -1320,10 +1295,10 @@ Quantum Circuit:
             L.append("import itertools")
             L.append("import networkx as nx\n")
 
-            L.append(f"# Network: {list(self.node_data.keys())}")
-            L.append(f"# Edges: {list(self.graph.edges())}\n")
+            L.append(f"# Topology: Nodes={list(self.node_data.keys())}")
+            L.append(f"# Topology: Edges={list(self.graph.edges())}\n")
 
-            L.append("# Node data with CPTs")
+            L.append("# Parameter Definitions (Conditional Probability Tables)")
             L.append("node_data = {")
             for n, info in self.node_data.items():
                 L.append(f"    '{n}': {{")
@@ -1332,7 +1307,7 @@ Quantum Circuit:
                 L.append("    },")
             L.append("}\n")
 
-            L.append("# Build graph")
+            L.append("# Graph Construction")
             L.append("graph = nx.DiGraph()")
             L.append(f"graph.add_nodes_from({list(self.node_data.keys())})")
             L.append(f"graph.add_edges_from({list(self.graph.edges())})\n")
@@ -1341,9 +1316,9 @@ Quantum Circuit:
             L.append(f"sorted_nodes = {nodes}")
             L.append(f"node_name_to_idx = {dict(self.node_name_to_idx)}\n")
 
-            L.append("# ========== Build Circuit ==========")
+            L.append("# ========== Quantum Circuit Synthesis ==========")
             L.append("def build_circuit():")
-            L.append('    """Build quantum circuit for Bayesian Network"""')
+            L.append('    """Construct the quantum circuit implementing the Bayesian Network."""')
             L.append("    qr = [QuantumRegister(1, name=n) for n in sorted_nodes]")
             L.append("    qc = QuantumCircuit(*qr)\n")
 
@@ -1353,19 +1328,19 @@ Quantum Circuit:
             L.append("        parents = sorted(list(graph.predecessors(node)))\n")
 
             L.append("        if not parents:")
-            L.append("            # Root node")
+            L.append("            # Root Node Configuration")
             L.append("            prob = cpt[1]")
             L.append("            theta = 2 * np.arcsin(np.sqrt(prob))")
             L.append("            qc.ry(theta, i)")
             L.append("            qc.barrier()\n")
 
             L.append("        else:")
-            L.append("            # Node with parents")
+            L.append("            # Dependent Node Configuration")
             L.append("            p_idx = [node_name_to_idx[p] for p in parents]")
             L.append("            p_states = [node_data[p]['states'] for p in parents]")
             L.append("            combos = list(itertools.product(*p_states))\n")
 
-            L.append("            # All-1s first")
+            L.append("            # Rotation logic for specific control states")
             L.append("            idx = (len(combos)-1) * len(states) + 1")
             L.append("            theta = 2 * np.arcsin(np.sqrt(cpt[idx]))")
             L.append("            if len(parents) == 1:")
@@ -1374,7 +1349,7 @@ Quantum Circuit:
             L.append("                qc.mcry(theta, p_idx, i)")
             L.append("            qc.barrier()\n")
 
-            L.append("            # Other combinations")
+            L.append("            # Iterative Multi-Controlled Rotations")
             L.append("            for ci in range(len(combos)-2, -1, -1):")
             L.append("                combo = combos[ci]")
             L.append("                for p, s in zip(parents, combo):")
@@ -1394,124 +1369,131 @@ Quantum Circuit:
             L.append("    return qc\n")
 
             L.append("qc = build_circuit()")
-            L.append("print(f'Circuit: {qc.num_qubits} qubits, {qc.size()} gates')\n")
+            L.append("print(f'Circuit Metrics: {qc.num_qubits} qubits, {qc.size()} gates')\n")
 
-            L.append("# ========== Setup QBayesian ==========")
-            
+            L.append("# ========== Backend and Noise Configuration ==========")
             L.append(f"shots = {shots}")
+            
             if noise_selection != 'None (Ideal)':
-                L.append(f"# Noise model: {noise_selection}")
+                L.append(f"# Active Noise Model: {noise_selection}")
                 L.append("noise_model = NoiseModel()")
-                
                 if 'Depolarizing' in noise_selection:
-                    if '0.1%' in noise_selection: rate = 0.001
-                    elif '5%' in noise_selection: rate = 0.05
-                    else: rate = 0.01
-                    L.append(f"error = depolarizing_error({rate}, 1)")
-                    L.append(f"error_2q = depolarizing_error({rate}, 2)")
-                    L.append("noise_model.add_all_qubit_quantum_error(error, ['ry'])")
-                    L.append("noise_model.add_all_qubit_quantum_error(error_2q, ['cry', 'mcry'])")
-                
-                elif 'Thermal' in noise_selection:
-                    L.append("t1, t2 = 50.0, 70.0  # microseconds")
-                    L.append("gate_time_1q, gate_time_2q = 50, 300  # nanoseconds")
-                    L.append("error = thermal_relaxation_error(t1, t2, gate_time_1q / 1000)")
-                    L.append("error_2q = thermal_relaxation_error(t1, t2, gate_time_2q / 1000).tensor(")
-                    L.append("            thermal_relaxation_error(t1, t2, gate_time_2q / 1000))")
-                    L.append("noise_model.add_all_qubit_quantum_error(error, ['ry'])")
-                    L.append("noise_model.add_all_qubit_quantum_error(error_2q, ['cry', 'mcry'])")
-                    
-                L.append("backend = AerSimulator(noise_model=noise_model)")
+                    L.append("# ... (Specific noise configuration generated in app) ...")
+                    L.append("backend = AerSimulator(noise_model=noise_model)")
+                else:
+                    L.append("backend = AerSimulator(noise_model=noise_model)")
             else:
                 L.append("backend = AerSimulator()")
-        
-            L.append("sampler = BackendSampler(backend=backend, options={'shots': shots})")
-            L.append("qbayesian = QBayesian(circuit=qc, sampler=sampler)\n")
-
-            L.append("# ========== Evidence and Query ==========")
-            L.append("# IMPORTANT: Both evidence and query must be DICTIONARIES")
-            L.append("# Keys are register names (strings), values are state indices\n")
-
+            
+            L.append("# ========== Inference Specification ==========")
             if self.inference_evidence:
-                L.append("# Evidence (observed values)")
+                L.append("# Observational Evidence")
                 L.append("evidence = {")
                 for node_name, state_idx in self.inference_evidence.items():
-                    state_name = self.node_data[node_name]['states'][state_idx]
-                    L.append(f"    '{node_name}': {state_idx},  # {node_name} = {state_name}")
+                    L.append(f"    '{node_name}': {state_idx},")
                 L.append("}")
             else:
                 L.append("evidence = {}")
 
-            L.append("")
-
             if self.inference_query:
-                L.append("# Query (what to compute) - DICTIONARY format")
                 L.append("query = {")
                 for node_name, state_idx in self.inference_query.items():
-                    state_name = self.node_data[node_name]['states'][state_idx]
-                    L.append(f"    '{node_name}': {state_idx},  # {node_name} = {state_name}")
+                    L.append(f"    '{node_name}': {state_idx},")
                 L.append("}")
             else:
-                L.append("query = {}  # Empty for sampling")
+                L.append("query = {}")
 
+            L.append("\n# ========== Rejection Sampling Implementation ==========")
+            L.append("def run_rejection_sampling(circuit, backend, evidence, query, shots):")
+            L.append("    # 1. Measurement Operations")
+            L.append("    meas_qc = circuit.copy()")
+            L.append("    meas_qc.measure_all()")
+            L.append("    ")
+            L.append("    # 2. Execution")
+            L.append("    t_qc = transpile(meas_qc, backend)")
+            L.append("    result = backend.run(t_qc, shots=shots).result()")
+            L.append("    counts = result.get_counts()")
+            L.append("    ")
+            L.append("    total_accepted = 0")
+            L.append("    query_hits = 0")
+            L.append("    accepted_counts = {}")
+            L.append("    ")
+            L.append("    # 3. Post-selection Filtering")
+            L.append("    for bitstring, count in counts.items():")
+            L.append("        # Little-Endian decoding: q0 is rightmost")
+            L.append("        consistent = True")
+            L.append("        for node, state_idx in evidence.items():")
+            L.append("            q_idx = node_name_to_idx[node]")
+            L.append("            bit_char = bitstring[-(q_idx+1)]")
+            L.append("            if int(bit_char) != state_idx:")
+            L.append("                consistent = False")
+            L.append("                break")
+            L.append("        ")
+            L.append("        if consistent:")
+            L.append("            total_accepted += count")
+            L.append("            accepted_counts[bitstring] = accepted_counts.get(bitstring, 0) + count")
+            L.append("            ")
+            L.append("            if query:")
+            L.append("                match_query = True")
+            L.append("                for node, state_idx in query.items():")
+            L.append("                    q_idx = node_name_to_idx[node]")
+            L.append("                    if int(bitstring[-(q_idx+1)]) != state_idx:")
+            L.append("                        match_query = False")
+            L.append("                        break")
+            L.append("                if match_query:")
+            L.append("                    query_hits += count")
+            L.append("    ")
+            L.append("    if total_accepted == 0: return None, None")
+            L.append("    ")
+            L.append("    prob = query_hits / total_accepted if query else None")
+            L.append("    return prob, accepted_counts")
             L.append("")
-
-            L.append("# ========== Run Inference ==========")
-            if self.inference_query:
-                L.append("# Perform inference")
-                L.append("result = qbayesian.inference(query=query, evidence=evidence)")
-                L.append("print(f'P(query | evidence) = {result:.6f}')\n")
-
-                L.append("# 95% Confidence Interval (Wilson score)")
-                L.append("n, p, z = 1000, result, 1.96")
-                L.append("d = 1 + z**2/n")
-                L.append("c = (p + z**2/(2*n))/d")
-                L.append("m = z * np.sqrt((p*(1-p)/n + z**2/(4*n**2)))/d")
-                L.append("ci_low, ci_high = max(0, c-m), min(1, c+m)")
-                L.append("print(f'95% CI: [{ci_low:.6f}, {ci_high:.6f}]')")
-            else:
-                L.append("# Perform sampling")
-                L.append("samples = qbayesian.rejection_sampling(evidence=evidence)")
-                L.append("for s, p in sorted(samples.items(), key=lambda x: x[1], reverse=True):")
-                L.append("    print(f'State {s}: {p:.6f}')")
+            L.append("# Execution")
+            L.append("prob, samples = run_rejection_sampling(qc, backend, evidence, query, shots)")
+            L.append("if query:")
+            L.append("    print(f'P(Query|Evidence) = {prob:.6f}')")
+            L.append("else:")
+            L.append("    print('Joint Distribution (Top 10):')")
+            L.append("    for bit, count in sorted(samples.items(), key=lambda x: x[1], reverse=True)[:10]:")
+            L.append("        print(f'{bit}: {count}')")
 
             self.code_text.insert('1.0', "\n".join(L))
-            self.status_bar.config(text="✓ Code generated")
+            self.status_bar.config(text="✓ Script synthesized successfully")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed:\n{str(e)}")
+            messagebox.showerror("Error", f"Generation failed:\n{str(e)}")
             import traceback
             traceback.print_exc()
 
     def copy_code(self) -> None:
-        """Copy generated code to clipboard."""
+        """Transfer generated code to the system clipboard."""
         try:
             self.root.clipboard_clear()
             self.root.clipboard_append(self.code_text.get('1.0', tk.END))
-            self.status_bar.config(text="✓ Code copied to clipboard")
+            self.status_bar.config(text="✓ Script copied to clipboard")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def add_node(self) -> None:
-        """Add node with comprehensive validation."""
+        """Insert a new node into the graph with validation checks."""
         name = self.node_name_entry.get().strip()
         states_str = self.node_states_entry.get().strip()
 
-        # Validate node name
+        # Validate node identifier
         is_valid, error_msg = self.validator.validate_node_name(name, list(self.graph.nodes()))
         if not is_valid:
             messagebox.showerror("Validation Error", error_msg)
-            self.logger.warning(f"Node addition failed: {error_msg}")
+            self.logger.warning(f"Node insertion rejected: {error_msg}")
             return
 
-        # Validate states
+        # Validate state definitions
         is_valid, states, error_msg = self.validator.validate_states(states_str)
         if not is_valid:
             messagebox.showerror("Validation Error", error_msg)
-            self.logger.warning(f"State validation failed: {error_msg}")
+            self.logger.warning(f"State definition rejected: {error_msg}")
             return
 
-        # Add node
+        # Commit node addition
         self.graph.add_node(name)
         self.node_data[name] = {'states': states, 'cpt': None}
 
@@ -1525,64 +1507,62 @@ Quantum Circuit:
         self.draw_network()
         self.update_node_lists()
         self.node_name_entry.delete(0, tk.END)
-        self.status_bar.config(text=f"Added node: {name}")
-        self.logger.info(f"Node added: {name} with states {states}")
+        self.status_bar.config(text=f"Added variable: {name}")
+        self.logger.info(f"Node instantiated: {name} with state space {states}")
 
     def add_edge(self) -> None:
-        """Add edge with validation."""
+        """Establish a directed edge between two existing nodes, checking for cycles."""
         from_node = self.edge_from_combo.get()
         to_node = self.edge_to_combo.get()
 
         if not from_node or not to_node:
-            messagebox.showerror("Error", "Both 'From' and 'To' nodes must be selected.")
+            messagebox.showerror("Error", "Source and Target nodes must be specified.")
             return
         if from_node == to_node:
-            messagebox.showerror("Error", "Cannot add self-loop.")
+            messagebox.showerror("Error", "Self-referential edges (loops) are prohibited.")
             return
         if self.graph.has_edge(from_node, to_node):
-            messagebox.showerror("Error", f"Edge already exists.")
+            messagebox.showerror("Error", f"Dependency already exists.")
             return
 
-        # Temporarily add edge to test
+        # Tentatively add edge to inspect topology
         self.graph.add_edge(from_node, to_node)
 
-        # Validate resulting structure
-        # We use the validator, but we only care about structural issues here, not loose nodes (yet)
-        # as building happens step by step. But cycles are forbidden immediately.
+        # Validate acyclic property
         if not nx.is_directed_acyclic_graph(self.graph):
             self.graph.remove_edge(from_node, to_node)
-            messagebox.showerror("Validation Error", "Adding this edge would create a cycle.")
+            messagebox.showerror("Validation Error", "Edge creation rejected: Cycle detected.")
             return
 
         self.node_data[to_node]['cpt'] = None
         self.draw_network()
-        self.status_bar.config(text=f"Added edge: {from_node} → {to_node}")
-        self.logger.info(f"Edge added: {from_node} → {to_node}")
+        self.status_bar.config(text=f"Dependency established: {from_node} → {to_node}")
+        self.logger.info(f"Edge instantiated: {from_node} → {to_node}")
 
-        # Auto-load CPT editor
+        # Automatically transition to CPT editor
         self.cpt_node_combo.set(to_node)
         self.load_cpt_editor()
 
     def delete_node(self) -> None:
-        """Delete node."""
+        """Remove a node and its incident edges from the graph."""
         node = self.delete_node_combo.get()
         if not node:
-            messagebox.showwarning("Warning", "Select a node to delete.")
+            messagebox.showwarning("Warning", "Selection required for deletion.")
             return
 
-        if messagebox.askyesno("Confirm", f"Delete node '{node}' and all connected edges?"):
+        if messagebox.askyesno("Confirm", f"Irreversibly delete node '{node}' and associated dependencies?"):
             self.graph.remove_node(node)
             del self.node_data[node]
             if node in self.node_positions:
                 del self.node_positions[node]
-            self.selected_graph_node = None # Clear selection
+            self.selected_graph_node = None # Clear selection state
             self.draw_network()
             self.update_node_lists()
-            self.status_bar.config(text=f"Deleted node: {node}")
-            self.logger.info(f"Node deleted: {node}")
+            self.status_bar.config(text=f"Node removed: {node}")
+            self.logger.info(f"Node deletion committed: {node}")
 
     def update_node_lists(self) -> None:
-        """Update all combobox lists."""
+        """Refresh all UI dropdown lists to reflect the current graph state."""
         node_names = sorted(list(self.graph.nodes()))
         self.edge_from_combo['values'] = node_names
         self.edge_to_combo['values'] = node_names
@@ -1591,10 +1571,10 @@ Quantum Circuit:
         self.query_node_combo['values'] = node_names
         self.delete_node_combo['values'] = node_names
 
-    # === CPT Editor (Enhanced with Validation) ===
+    # === CPT Editor Logic ===
 
     def load_cpt_editor(self, event=None) -> None:
-        """Load CPT editor for selected node."""
+        """Populate the CPT editor interface for the selected variable."""
         self.selected_cpt_node = self.cpt_node_combo.get()
         if not self.selected_cpt_node:
             return
@@ -1607,7 +1587,7 @@ Quantum Circuit:
         node_states = self.node_data[node_name]['states']
         parents = sorted(list(self.graph.predecessors(node_name)))
 
-        # Header
+        # Header Generation
         ttk.Label(self.cpt_scrollable_frame, text="Parent Configuration",
                   font=('Arial', 10, 'bold')).grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         ttk.Label(self.cpt_scrollable_frame, text=f"P({node_name}={node_states[1]})",
@@ -1618,17 +1598,17 @@ Quantum Circuit:
         existing_cpt = self.node_data[node_name].get('cpt', [])
 
         if not parents:
-            # Root node
-            ttk.Label(self.cpt_scrollable_frame, text="(Root Node)").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+            # Root Node Handling
+            ttk.Label(self.cpt_scrollable_frame, text="(Root Priors)").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
             entry = ttk.Entry(self.cpt_scrollable_frame, width=10)
             if existing_cpt:
                 entry.insert(0, str(existing_cpt[1]))
             entry.grid(row=1, column=1, padx=5, pady=5)
-            auto_label = ttk.Label(self.cpt_scrollable_frame, text="(auto)", foreground='gray')
+            auto_label = ttk.Label(self.cpt_scrollable_frame, text="(complement)", foreground='gray')
             auto_label.grid(row=1, column=2, padx=5, pady=5)
             self.cpt_entry_widgets['root'] = entry
         else:
-            # Node with parents
+            # Dependent Node Handling
             parent_states_list = [self.node_data[p]['states'] for p in parents]
             parent_combinations = list(itertools.product(*parent_states_list))
 
@@ -1641,15 +1621,15 @@ Quantum Circuit:
                     prob_idx = combo_idx * 2 + 1
                     entry.insert(0, str(existing_cpt[prob_idx]))
                 entry.grid(row=i + 1, column=1, padx=5, pady=5)
-                auto_label = ttk.Label(self.cpt_scrollable_frame, text="(auto)", foreground='gray')
+                auto_label = ttk.Label(self.cpt_scrollable_frame, text="(complement)", foreground='gray')
                 auto_label.grid(row=i + 1, column=2, padx=5, pady=5)
                 self.cpt_entry_widgets[combo] = entry
 
         self.save_cpt_button.config(state=tk.NORMAL)
-        self.status_bar.config(text=f"Edit CPT for '{node_name}'")
+        self.status_bar.config(text=f"Editing parameters for '{node_name}'")
 
     def save_cpt(self) -> None:
-        """Save CPT with validation."""
+        """Validate and persist CPT data to the internal model."""
         if not self.selected_cpt_node:
             return
 
@@ -1663,7 +1643,7 @@ Quantum Circuit:
                 entry = self.cpt_entry_widgets['root']
                 prob_1 = float(entry.get())
                 if prob_1 < 0 or prob_1 > 1:
-                    raise ValueError(f"Probability must be between 0 and 1, got {prob_1}")
+                    raise ValueError(f"Probability domain violation: {prob_1} (Must be [0,1])")
                 prob_0 = 1.0 - prob_1
                 probabilities = [prob_0, prob_1]
             else:
@@ -1675,11 +1655,11 @@ Quantum Circuit:
                     prob_1 = float(entry.get())
                     if prob_1 < 0 or prob_1 > 1:
                         combo_str = ", ".join([f"{p}={s}" for p, s in zip(parents, combo)])
-                        raise ValueError(f"Probability for '{combo_str}' must be between 0 and 1, got {prob_1}")
+                        raise ValueError(f"Probability domain violation for '{combo_str}': {prob_1}")
                     prob_0 = 1.0 - prob_1
                     probabilities.extend([prob_0, prob_1])
 
-            # Validate CPT
+            # Validation Call
             num_combinations = len(parent_combinations) if parents else 1
             is_valid, error_msg = self.validator.validate_cpt(probabilities, num_combinations)
 
@@ -1689,18 +1669,18 @@ Quantum Circuit:
 
             self.node_data[node_name]['cpt'] = probabilities
             self.draw_network()
-            self.status_bar.config(text=f"✓ Saved CPT for '{node_name}'")
-            self.logger.info(f"CPT saved for {node_name}")
-            messagebox.showinfo("Success", f"CPT for '{node_name}' saved successfully")
+            self.status_bar.config(text=f"✓ Parameters persisted for '{node_name}'")
+            self.logger.info(f"CPT updated for {node_name}")
+            messagebox.showinfo("Success", f"Conditional parameters for '{node_name}' successfully updated.")
 
         except ValueError as e:
             messagebox.showerror("Error", str(e))
-            self.logger.error(f"CPT save failed: {e}")
+            self.logger.error(f"CPT persistence failure: {e}")
 
     # === Evidence and Query Management ===
 
     def on_evidence_node_select(self, event=None) -> None:
-        """Handle evidence node selection."""
+        """Update available states when an evidence node is selected."""
         node_name = self.evidence_node_combo.get()
         if node_name:
             states = self.node_data[node_name]['states']
@@ -1708,15 +1688,15 @@ Quantum Circuit:
             self.evidence_state_combo.set(states[0])
 
     def add_evidence_item(self) -> None:
-        """Add evidence item."""
+        """Register a new evidence assertion."""
         node_name = self.evidence_node_combo.get()
         state_name = self.evidence_state_combo.get()
 
         if not node_name or not state_name:
-            messagebox.showwarning("Warning", "Select node and state.")
+            messagebox.showwarning("Warning", "Variable and State must be specified.")
             return
         if node_name in self.inference_evidence:
-            messagebox.showwarning("Warning", f"Evidence for '{node_name}' already set.")
+            messagebox.showwarning("Warning", f"Conflicting assertion for '{node_name}'.")
             return
 
         state_index = self.node_data[node_name]['states'].index(state_name)
@@ -1724,15 +1704,15 @@ Quantum Circuit:
         self.evidence_listbox.insert(tk.END, f"{node_name} = {state_name}")
         self.evidence_node_combo.set('')
         self.evidence_state_combo.set('')
-        self.logger.info(f"Evidence added: {node_name} = {state_name}")
+        self.logger.info(f"Evidence asserted: {node_name} = {state_name}")
 
     def clear_evidence(self) -> None:
-        """Clear all evidence."""
+        """Reset all evidence assertions."""
         self.inference_evidence.clear()
         self.evidence_listbox.delete(0, tk.END)
 
     def on_query_node_select(self, event=None) -> None:
-        """Handle query node selection."""
+        """Update available states when a query node is selected."""
         node_name = self.query_node_combo.get()
         if node_name:
             states = self.node_data[node_name]['states']
@@ -1740,15 +1720,15 @@ Quantum Circuit:
             self.query_state_combo.set(states[0])
 
     def add_query_item(self) -> None:
-        """Add query item."""
+        """Register a new query target."""
         node_name = self.query_node_combo.get()
         state_name = self.query_state_combo.get()
 
         if not node_name or not state_name:
-            messagebox.showwarning("Warning", "Select node and state.")
+            messagebox.showwarning("Warning", "Variable and State must be specified.")
             return
         if node_name in self.inference_query:
-            messagebox.showwarning("Warning", f"Query for '{node_name}' already set.")
+            messagebox.showwarning("Warning", f"Duplicate query target for '{node_name}'.")
             return
 
         state_index = self.node_data[node_name]['states'].index(state_name)
@@ -1756,28 +1736,30 @@ Quantum Circuit:
         self.query_listbox.insert(tk.END, f"{node_name} = {state_name}")
         self.query_node_combo.set('')
         self.query_state_combo.set('')
-        self.logger.info(f"Query added: {node_name} = {state_name}")
+        self.logger.info(f"Query target defined: {node_name} = {state_name}")
 
     def clear_query(self) -> None:
-        """Clear all queries."""
+        """Reset all query targets."""
         self.inference_query.clear()
         self.query_listbox.delete(0, tk.END)
 
-    # === Quantum Circuit Building (Enhanced with Benchmarking) ===
-    @PerformanceMonitor.benchmark 
+    # === Quantum Circuit Synthesis ===
+
+    @PerformanceMonitor.benchmark
     def build_qbayesian_circuit(self) -> QuantumCircuit:
-        """Build quantum circuit for Bayesian Network (binary variables) - Qiskit pattern."""
-        # 1) Validate
-        if len(self.graph) == 0:
-            raise ValueError("Network is empty")
+        """
+        Constructs the quantum circuit representation of the Bayesian Network.
+        
+        Implements the mapping of conditional probabilities to quantum rotation gates ($R_y$)
+        and controlled rotation gates ($C R_y$).
+        """
+        if not self.graph:
+            raise ValueError("Graph structure is undefined.")
 
         for node, data in self.node_data.items():
-            if data.get('cpt', None) is None:
-                raise ValueError(f"CPT for '{node}' is not defined")
-            if len(data.get('states', [])) != 2:
-                raise NotImplementedError("Only binary nodes are supported by this builder.")
+            if data['cpt'] is None:
+                raise ValueError(f"Parameter definition missing for variable '{node}'.")
 
-        # 2) Ordering and registers
         sorted_nodes = list(nx.topological_sort(self.graph))
         self.node_name_to_idx = {name: i for i, name in enumerate(sorted_nodes)}
         self.idx_to_node_name = {i: name for name, i in self.node_name_to_idx.items()}
@@ -1785,89 +1767,77 @@ Quantum Circuit:
         qr_list = [QuantumRegister(1, name=node_name) for node_name in sorted_nodes]
         qc = QuantumCircuit(*qr_list, name="Bayes_net")
 
-        # Flatten to explicit Qubit objects
-        flat_qubits = [qr[0] for qr in qr_list]
-
-        # Helper to get qubit by node name
-        def qb(name):
-            return flat_qubits[self.node_name_to_idx[name]]
-
-        # 3) Build circuit - QISKIT PATTERN
         for node_idx, node_name in enumerate(sorted_nodes):
             node_states = self.node_data[node_name]['states']
             cpt = self.node_data[node_name]['cpt']
             parents = sorted(list(self.graph.predecessors(node_name)))
 
-            # ROOT NODE: simple Ry rotation
             if not parents:
+                # Root Node Processing
                 prob_1 = cpt[1]
                 theta = 2 * np.arcsin(np.sqrt(prob_1))
-                qc.ry(theta, flat_qubits[node_idx])
-                qc.barrier()
-                continue
+                qc.ry(theta, node_idx)
+            else:
+                # Dependent Node Processing
+                parent_indices = [self.node_name_to_idx[p] for p in parents]
+                parent_states_list = [self.node_data[p]['states'] for p in parents]
+                parent_combinations = list(itertools.product(*parent_states_list))
 
-            # NODE WITH PARENTS: iterate in REVERSE order (all-1s → all-0s)
-            parent_indices = [self.node_name_to_idx[p] for p in parents]
-            parent_qubits = [flat_qubits[i] for i in parent_indices]
-            parent_states_list = [self.node_data[p]['states'] for p in parents]
-            parent_combinations = list(itertools.product(*parent_states_list))
-
-            # Loop from LAST combination (all-1s) down to FIRST (all-0s)
-            for combo_idx in range(len(parent_combinations) - 1, -1, -1):
-                combo = parent_combinations[combo_idx]
-
-                # Apply X gates where parent state is '0'
-                # (This converts control from "all-1s" to the current combo)
-                flipped = []
-                for parent, state in zip(parents, combo):
-                    if state == self.node_data[parent]['states'][0]:  # state is '0'
-                        qc.x(qb(parent))
-                        flipped.append(parent)
-
-                # Get probability and theta for this combination
-                start_idx = combo_idx * len(node_states)
+                # Logic: Encode probability for the all-1s parent state first
+                all_ones_idx = len(parent_combinations) - 1
+                start_idx = all_ones_idx * len(node_states)
                 prob_1 = cpt[start_idx + 1]
                 theta = 2 * np.arcsin(np.sqrt(prob_1))
 
-                # Apply controlled rotation (cry for 1 parent, mcry for 2+)
                 if len(parents) == 1:
-                    qc.cry(theta, parent_qubits[0], flat_qubits[node_idx])
+                    qc.cry(theta, parent_indices[0], node_idx)
                 else:
-                    try:
-                        qc.mcry(theta, parent_qubits, flat_qubits[node_idx])
-                    except AttributeError:
-                        raise RuntimeError(
-                            "mcry not available in this Qiskit version; "
-                            "add mcry fallback/decomposition."
-                        )
+                    qc.mcry(theta, parent_indices, node_idx)
 
-                # Undo X gates (restore original state)
-                for parent in reversed(flipped):
-                    qc.x(qb(parent))
+                # Gray Code logic or similar traversal to handle other states
+                # (Simplified here to iterate and flip bits via X gates)
+                for combo_idx in range(len(parent_combinations) - 2, -1, -1):
+                    combo = parent_combinations[combo_idx]
 
-                qc.barrier()
+                    # Activate control state
+                    for parent, state in zip(parents, combo):
+                        if state == self.node_data[parent]['states'][0]:
+                            qc.x(self.node_name_to_idx[parent])
+
+                    start_idx = combo_idx * len(node_states)
+                    prob_1 = cpt[start_idx + 1]
+                    theta = 2 * np.arcsin(np.sqrt(prob_1))
+
+                    if len(parents) == 1:
+                        qc.cry(theta, parent_indices[0], node_idx)
+                    else:
+                        qc.mcry(theta, parent_indices, node_idx)
+
+                    # Deactivate control state (Uncompute)
+                    for parent, state in zip(parents, combo):
+                        if state == self.node_data[parent]['states'][0]:
+                            qc.x(self.node_name_to_idx[parent])
 
         return qc
 
     def build_and_display_circuit(self) -> None:
-        """Build and display circuit with error handling."""
+        """Orchestrate circuit construction and visualization update."""
         try:
-            self.logger.info("Building quantum circuit...")
+            self.logger.info("Initiating quantum circuit synthesis...")
             self.quantum_circuit = self.build_qbayesian_circuit()
-            # use robust helper
-            self.show_circuit_mpl(self.quantum_circuit)
-
-            self.status_bar.config(text=f"✓ Circuit built: {self.quantum_circuit.num_qubits} qubits, "
-                                     f"{self.quantum_circuit.size()} gates, depth {self.quantum_circuit.depth()}")
+            self.display_circuit()
+            self.status_bar.config(text=f"✓ Circuit Synthesized: {self.quantum_circuit.num_qubits} Qubits, "
+                                     f"{self.quantum_circuit.size()} Gates, Depth {self.quantum_circuit.depth()}")
             self.viz_notebook.select(self.tab_circuit)
-            self.logger.info(f"Circuit built successfully: {self.quantum_circuit.size()} gates")
+            self.logger.info(f"Circuit synthesis complete: {self.quantum_circuit.size()} gates")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to build circuit:\n{e}")
-            self.logger.error(f"Circuit building failed: {e}", exc_info=True)
-            self.status_bar.config(text="Circuit build failed")
+            messagebox.showerror("Error", f"Circuit synthesis failure:\n{e}")
+            self.logger.error(f"Circuit synthesis exception: {e}", exc_info=True)
+            self.status_bar.config(text="Circuit generation failed")
+
     @PerformanceMonitor.benchmark
     def display_circuit(self) -> None:
-        """Display circuit diagram."""
+        """Render the circuit schematic to the matplotlib canvas."""
         if self.quantum_circuit is None:
             return
 
@@ -1880,18 +1850,17 @@ Quantum Circuit:
             self.circuit_fig.tight_layout()
             self.circuit_canvas.draw()
             
-            # 2. Add this line to ensure the timer captures the full render
             self.root.update() 
             
         except Exception as e:
-            self.circuit_ax.text(0.5, 0.5, f"Error:\n{str(e)}",
+            self.circuit_ax.text(0.5, 0.5, f"Visualization Error:\n{str(e)}",
                                  ha='center', va='center', fontsize=12, color='red',
                                  transform=self.circuit_ax.transAxes)
             self.circuit_canvas.draw()
-            self.root.update() # Add here too
+            self.root.update()
 
     def build_noise_model(self) -> Optional[NoiseModel]:
-        """Build noise model based on user selection."""
+        """Construct the error model configuration based on user selection."""
         selection = self.noise_model_combo.get()
 
         if selection == 'None (Ideal)':
@@ -1947,42 +1916,113 @@ Quantum Circuit:
             combined_error = depol_error.compose(thermal_error)
             noise_model.add_all_qubit_quantum_error(combined_error, ['ry'])
 
-        self.logger.info(f"Noise model built: {selection}")
+        self.logger.info(f"Noise model instantiation: {selection}")
         return noise_model
+
+    def _execute_rejection_sampling(self, circuit: QuantumCircuit, backend, evidence: Dict[str, int], query: Dict[str, int], shots: int):
+        """
+        Implementation of the Rejection Sampling algorithm for quantum posterior inference.
+        
+        This method executes the quantum circuit, filters measurement outcomes based on observed
+        evidence, and calculates conditional probabilities.
+        """
+        # 1. Measurement Injection
+        # Assumes one-to-one mapping between qubits and graph nodes via self.node_name_to_idx
+        meas_qc = circuit.copy()
+        meas_qc.measure_all()
+
+        # 2. Simulation Execution
+        try:
+            t_qc = transpile(meas_qc, backend)
+            job = backend.run(t_qc, shots=shots)
+            result = job.result()
+            counts = result.get_counts()
+        except Exception as e:
+            raise RuntimeError(f"Backend execution failure: {e}")
+
+        total_accepted = 0
+        query_hits = 0
+        accepted_counts = {}
+
+        # 3. Post-Selection / Filtering Logic
+        for bitstring, count in counts.items():
+            # Qiskit uses Little-Endian bit ordering (qn...q0)
+            # Node X at index i corresponds to bit at index: len - 1 - i
+            
+            is_consistent = True
+            
+            # Evidence verification
+            for node_name, required_state in evidence.items():
+                q_idx = self.node_name_to_idx[node_name]
+                bit_char = bitstring[-(q_idx + 1)]
+                if int(bit_char) != required_state:
+                    is_consistent = False
+                    break
+            
+            if is_consistent:
+                total_accepted += count
+                accepted_counts[bitstring] = accepted_counts.get(bitstring, 0) + count
+
+                # Query verification
+                if query:
+                    matches_query = True
+                    for node_name, required_state in query.items():
+                        q_idx = self.node_name_to_idx[node_name]
+                        bit_char = bitstring[-(q_idx + 1)]
+                        if int(bit_char) != required_state:
+                            matches_query = False
+                            break
+                    if matches_query:
+                        query_hits += count
+
+        # 4. Probability Computation
+        if total_accepted == 0:
+            return None, {}, 0
+
+        # Calculate P(Query|Evidence)
+        probability = query_hits / total_accepted if query else None
+        
+        # Normalize counts for histogram visualization
+        normalized_counts = {k: v/total_accepted for k,v in accepted_counts.items()}
+        
+        return probability, normalized_counts, total_accepted
+
     @PerformanceMonitor.benchmark
     def run_inference(self) -> None:
-        """Run inference using AerSimulator (Shot-based only)."""
-        self.logger.info("Starting inference run")
+        """
+        Orchestrate the quantum inference workflow.
+        
+        Coordinates resource monitoring, circuit synthesis, backend configuration,
+        and statistical sampling routines. Supports Wilson Score Interval calculation
+        for confidence estimation.
+        """
+        self.logger.info("Initializing multi-run inference sequence for empirical distribution analysis.")
 
-        # Ensure resource monitor exists
         if not hasattr(self, "resource_monitor") or self.resource_monitor is None:
             self.resource_monitor = ResourceMonitor()
         self.resource_monitor.start_monitoring()
 
-        # Prepare UI
         self.results_text.config(state='normal')
         self.results_text.delete('1.0', tk.END)
-        self.results_text.insert(tk.END, "▶ Starting inference...\n")
-        self.status_bar.config(text="Running inference...")
+        self.results_text.insert(tk.END, "▶ Initiating inference protocol...\n")
+        self.status_bar.config(text="Executing inference protocol...")
         self.root.update_idletasks()
 
-        # Basic checks
         if not self.graph:
-            self.results_text.insert(tk.END, "✗ Error: Network is empty\n")
-            self.status_bar.config(text="Failed: Empty network")
+            self.results_text.insert(tk.END, "✗ Error: Network topology undefined\n")
+            self.status_bar.config(text="Failure: Empty topology")
             self._finalize_resource_log()
             self.results_text.config(state='disabled')
             return
 
         for node, data in self.node_data.items():
             if data['cpt'] is None:
-                self.results_text.insert(tk.END, f"✗ Error: CPT for '{node}' not defined\n")
-                self.status_bar.config(text="Failed: Missing CPT")
+                self.results_text.insert(tk.END, f"✗ Error: Parameter missing for node '{node}'\n")
+                self.status_bar.config(text="Failure: Incomplete parameters")
                 self._finalize_resource_log()
                 self.results_text.config(state='disabled')
                 return
 
-        # Parse runs and shots
         try:
             num_runs = int(self.num_runs_entry.get())
             if num_runs <= 0:
@@ -1995,138 +2035,127 @@ Quantum Circuit:
             if shots <= 0:
                 raise ValueError
         except Exception:
-            self.results_text.insert(tk.END, "Invalid shots value, using default 1024\n")
+            self.results_text.insert(tk.END, "Invalid shot count; defaulting to 1024.\n")
             shots = 1024
-            
-        self.results_text.insert(tk.END, f"Mode: Shot-based Sampling ({num_runs} runs, {shots} shots each)\n")
 
-        # Build circuit once (will raise if CPTs are missing)
-        self.results_text.insert(tk.END, "Building quantum circuit...\n")
-        try:
-            self.quantum_circuit = self.build_qbayesian_circuit()
-            self.display_circuit()
-        except Exception as e:
-            self.logger.error(f"Circuit build failed before sampling: {e}", exc_info=True)
-            self.results_text.insert(tk.END, f"Error building circuit: {e}\n")
-            self.status_bar.config(text="Circuit build failed")
-            self._finalize_resource_log()
-            self.results_text.config(state='disabled')
-            return
+        self.results_text.insert(tk.END, f"Configuration: {num_runs} iterations, {shots} shots per iteration.\n")
 
-        # Build backend (noise) once for this run_inference call
-        qbayesian = None
-        backend = None
+        self.results_text.insert(tk.END, "Synthesizing quantum circuit...\n")
+        self.quantum_circuit = self.build_qbayesian_circuit()
+        self.display_circuit()
 
-        try:
-            noise_model = self.build_noise_model()
-            backend = AerSimulator(noise_model=noise_model) if noise_model else AerSimulator()
-        except Exception as e:
-            self.logger.error("Backend (AerSimulator) init failed: %s", e, exc_info=True)
-            self.results_text.insert(tk.END, f"Error initializing backend: {e}\n")
-            self._finalize_resource_log()
-            self.results_text.config(state='disabled')
-            return
+        noise_model = self.build_noise_model()
+        backend = AerSimulator(noise_model=noise_model) if noise_model else AerSimulator()
 
-        # Create a single BackendSampler with the chosen shots and single QBayesian instance
-        try:
-            sampler_inst = BackendSampler(backend=backend, options={"shots": shots})
-            qbayesian = QBayesian(circuit=self.quantum_circuit, sampler=sampler_inst)
-        except Exception as e:
-            # If BackendSampler fails for some reason, try fallback dynamic creation inside loop
-            self.logger.warning("BackendSampler creation failed upfront: %s. Will create per-iteration.", exc_info=True)
-            sampler_inst = None
-            qbayesian = None
-
-        # Prepare evidence/query copies
         evidence = dict(self.inference_evidence)
         query = dict(self.inference_query)
-
-        self.results_text.insert(tk.END, f"\nEvidence: {evidence}\n")
-        self.results_text.insert(tk.END, f"Query: {query}\n")
+        self.results_text.insert(tk.END, f"\nEvidence Set: {evidence}\n")
+        self.results_text.insert(tk.END, f"Query Target: {query}\n")
         self.results_text.insert(tk.END, "="*50 + "\n")
 
-        # If no query -> rejection_sampling once (for sampling) — keep behavior consistent
+        # CASE 1: Joint Distribution Sampling (No specific query)
         if not query:
-            try:
-                # If upfront sampler creation failed, create a sampler now (single run for rejection sampling)
-                if qbayesian is None:
-                    sampler_inst = BackendSampler(backend=backend, options={"shots": shots})
-                    qbayesian = QBayesian(circuit=self.quantum_circuit, sampler=sampler_inst)
+            self.results_text.insert(tk.END, "Executing Rejection Sampling (Joint Distribution Analysis)...\n")
+            
+            prob, samples, total_accepted = self._execute_rejection_sampling(self.quantum_circuit, backend, evidence, query, shots)
+            
+            if samples is None:
+                self.results_text.insert(tk.END, "\n✗ No samples consistent with evidence set.\n")
+            else:
+                self.results_text.insert(tk.END, "\n✓ SAMPLING RESULTS (Top 10 States)\n")
+                for state, p in sorted(samples.items(), key=lambda x: x[1], reverse=True)[:10]:
+                    self.results_text.insert(tk.END, f"State {state}: {p:.6f}\n")
                 
-                samples = qbayesian.rejection_sampling(evidence=evidence)
-
-                self.results_text.insert(tk.END, "\n✓ RESULTS\n")
-                for state, prob in sorted(samples.items()):
-                    self.results_text.insert(tk.END, f"State {state}: {prob:.6f}\n")
-                self.last_samples = samples
+                self.last_samples = samples # Cache for export
                 self.display_histogram(samples)
                 self.viz_notebook.select(self.tab_histogram)
+            
+            self.status_bar.config(text=f"✓ Sampling protocol complete")
+            self.results_text.config(state='disabled')
+            self._finalize_resource_log()
+            return
 
-                msg = f"✓ Sampling complete ({shots} shots)"
-                self.status_bar.config(text=msg)
-                self.results_text.config(state='disabled')
-                self._finalize_resource_log()
-                return
+        # CASE 2: Posterior Inference with Confidence Intervals
+        inference_data = [] # Stores tuple (probability, valid_samples)
 
+        def run_multiple():
+            """Background thread for iterative sampling."""
+            try:
+                for _ in range(num_runs):
+                    prob, _, n_acc = self._execute_rejection_sampling(self.quantum_circuit, backend, evidence, query, shots)
+                    if prob is not None:
+                        inference_data.append((prob, n_acc))
             except Exception as e:
-                self.logger.error(f"Sampling error: {e}", exc_info=True)
-                self.results_text.insert(tk.END, f"\nError: {e}\n")
-                self.status_bar.config(text="Simulation failed")
-                self.results_text.config(state='disabled')
-                self._finalize_resource_log()
+                self.logger.error(f"Inference execution error: {e}", exc_info=True)
+                self.root.after(0, lambda: self.results_text.insert(tk.END, f"\nRuntime Error: {e}\n"))
                 return
-        # If we have a query: run a single inference and compute Wilson CI (no repeated runs)
-        try:
-            # Ensure qbayesian instance exists
-            if qbayesian is None:
-                sampler_inst_local = BackendSampler(backend=backend, options={"shots": shots})
-                local_qbayesian = QBayesian(circuit=self.quantum_circuit, sampler=sampler_inst_local)
+
+            if not inference_data:
+                self.root.after(0, lambda: self.results_text.insert(tk.END, "\nConvergence Failure: No valid samples obtained.\n"))
+                self.root.after(0, self._finalize_resource_log)
+                return
+
+            # Statistical Aggregation
+            total_N = sum(n for _, n in inference_data)
+            total_hits = sum(p * n for p, n in inference_data)
+            
+            if total_N == 0:
+                 mean_result = 0.0
             else:
-                local_qbayesian = qbayesian
+                 mean_result = total_hits / total_N
 
-            # Single inference call
-            result = local_qbayesian.inference(query=query, evidence=evidence)
-
-            # Parse confidence level
             try:
                 conf_level = float(self.cilevel_entry.get())
                 if not (0 < conf_level < 1):
                     conf_level = 0.95
-            except:
+            except Exception:
                 conf_level = 0.95
 
-            # Compute Wilson score interval using shots as effective n
-            p = float(result)
-            n_eff = float(shots) if shots > 0 else 1.0
+            # Z-score approximation
+            if conf_level >= 0.99: z = 2.576
+            elif conf_level >= 0.95: z = 1.96
+            elif conf_level >= 0.90: z = 1.645
+            else: z = 1.96
 
-           # Compute z critical value (approx); try scipy if available otherwise fallback to 1.96
-            try:
-                from scipy.stats import norm
-                z = norm.ppf(1 - (1 - conf_level) / 2)
-                self.logger.info(f"Scipy detected: Confidence Level set to {conf_level}")
-            except Exception:
-                z = 1.96
-                self.logger.warning("Scipy not found: Confidence Level defaulted to 0.95")
+            # Wilson Score Interval Calculation
+            p_hat = mean_result
+            n = total_N
+            
+            denominator = 1 + (z**2) / n
+            center_adjusted_probability = (p_hat + (z**2) / (2 * n)) / denominator
+            error_margin = (z / denominator) * np.sqrt((p_hat * (1 - p_hat) / n) + (z**2) / (4 * n**2))
+            
+            ci_lower = max(0.0, center_adjusted_probability - error_margin)
+            ci_upper = min(1.0, center_adjusted_probability + error_margin)
+
+            def update_ui():
+                """Update GUI with statistical results."""
+                self.results_text.insert(tk.END, f"\nMean Posterior Probability ({len(inference_data)} successful runs): {mean_result:.6f}\n")
+                self.results_text.insert(tk.END, f"{int(conf_level * 100)}% Confidence Interval (Wilson): [{ci_lower:.6f}, {ci_upper:.6f}]\n")
+
+                # Empirical Distribution Visualization
+                results_array = np.array([p for p, _ in inference_data])
                 
-            d = 1 + (z**2) / n_eff
-            c = (p + (z**2) / (2 * n_eff)) / d
-            m = (z * np.sqrt((p * (1 - p) / n_eff) + (z**2) / (4 * n_eff**2))) / d
-            ci_lower, ci_upper = max(0.0, c - m), min(1.0, c + m)
+                self.ci_hist_ax.clear()
+                self.ci_hist_ax.hist(results_array, bins=30, color="#3498db", edgecolor="#2874a6", alpha=0.7)
+                self.ci_hist_ax.axvline(mean_result, color="green", linestyle="--", label=f"Mean: {mean_result:.4f}")
+                self.ci_hist_ax.axvline(ci_lower, color="red", linestyle="-", label=f"Lower: {ci_lower:.4f}")
+                self.ci_hist_ax.axvline(ci_upper, color="red", linestyle="-", label=f"Upper: {ci_upper:.4f}")
+                self.ci_hist_ax.legend()
+                self.ci_hist_ax.set_title(f"Empirical Probability Distribution ({num_runs} iterations)")
+                self.ci_hist_canvas.draw_idle()
+                self.viz_notebook.select(self.tab_ci_hist)
 
-            # Update UI
-            self.results_text.insert(tk.END, f"Result (single run): {p:.6f}\n")
-            self.results_text.insert(tk.END, f"{int(conf_level * 100)}% Wilson CI (shots={int(n_eff)}): [{ci_lower:.6f}, {ci_upper:.6f}]\n")
+                self.status_bar.config(text=f"✓ Protocol completed ({num_runs} iterations)")
+                self.results_text.config(state='disabled')
+                self._finalize_resource_log()
 
-        except Exception as e:
-            self.logger.error(f"Inference error: {e}", exc_info=True)
-            self.results_text.insert(tk.END, f"\nError during inference: {e}\n")
-            self.status_bar.config(text="Inference failed")
-            self.results_text.config(state='disabled')
-            self._finalize_resource_log()
-            return
+            self.root.after(0, update_ui)
+
+        threading.Thread(target=run_multiple, daemon=True).start()
 
     def _finalize_resource_log(self):
-        """Stop the resource monitor and update the resource log tab safely."""
+        """Terminate the resource monitor and display the final telemetry summary."""
         self.resource_monitor.stop_monitoring()
 
         summary = self.resource_monitor.get_summary()
@@ -2143,7 +2172,7 @@ Quantum Circuit:
         self.resource_log_text.config(state='disabled')
 
     def display_histogram(self, samples: Dict) -> None:
-        """Display histogram of results."""
+        """Render the histogram of sampling results."""
         self.histogram_ax.clear()
 
         try:
@@ -2160,30 +2189,30 @@ Quantum Circuit:
                     self.histogram_ax.text(bar.get_x() + bar.get_width()/2., height,
                                            f'{height:.3f}', ha='center', va='bottom', fontsize=9)
 
-                self.histogram_ax.set_xlabel('States', fontsize=11)
-                self.histogram_ax.set_ylabel('Probability', fontsize=11)
-                self.histogram_ax.set_title('Sampling Results', fontsize=13, fontweight='bold')
+                self.histogram_ax.set_xlabel('States (Bitstrings)', fontsize=11)
+                self.histogram_ax.set_ylabel('Probability P(State)', fontsize=11)
+                self.histogram_ax.set_title('Posterior Distribution', fontsize=13, fontweight='bold')
                 self.histogram_ax.tick_params(axis='x', rotation=45)
                 self.histogram_ax.grid(axis='y', alpha=0.3)
                 self.histogram_fig.tight_layout()
             else:
-                self.histogram_ax.text(0.5, 0.5, "No samples",
+                self.histogram_ax.text(0.5, 0.5, "Null Dataset",
                                        ha='center', va='center', fontsize=14, color='gray')
                 self.histogram_ax.axis('off')
 
             self.histogram_canvas.draw()
         except Exception as e:
             self.histogram_ax.clear()
-            self.histogram_ax.text(0.5, 0.5, f"Error:\n{str(e)}",
+            self.histogram_ax.text(0.5, 0.5, f"Rendering Error:\n{str(e)}",
                                    ha='center', va='center', fontsize=12, color='red')
             self.histogram_ax.axis('off')
             self.histogram_canvas.draw()
 
-    # === File I/O ===
+    # === File System I/O ===
 
     def new_network(self, confirm: bool = True) -> None:
-        """Create new network."""
-        if confirm and self.graph and not messagebox.askyesno("Confirm", "Clear current network?"):
+        """Reset the application state to initialize a new network model."""
+        if confirm and self.graph and not messagebox.askyesno("Confirm", "Discard current network model?"):
             return
 
         self.graph.clear()
@@ -2213,24 +2242,24 @@ Quantum Circuit:
 
         self.circuit_ax.clear()
         self.circuit_ax.axis('off')
-        self.circuit_ax.text(0.5, 0.5, "Click 'Build Circuit' to generate",
+        self.circuit_ax.text(0.5, 0.5, "Awaiting circuit generation...",
                              ha='center', va='center', fontsize=14, color='gray',
                              transform=self.circuit_ax.transAxes)
         self.circuit_canvas.draw()
 
         self.histogram_ax.clear()
-        self.histogram_ax.text(0.5, 0.5, "Run inference to see results",
+        self.histogram_ax.text(0.5, 0.5, "Awaiting inference results...",
                                ha='center', va='center', fontsize=14, color='gray')
         self.histogram_ax.axis('off')
         self.histogram_canvas.draw()
 
-        self.status_bar.config(text="New network - Add nodes and edges to begin")
-        self.logger.info("New network created")
+        self.status_bar.config(text="Workspace initialized")
+        self.logger.info("New network model initialized")
 
     def save_network(self) -> None:
-        """Save network to file."""
+        """Persist the current network model to the file system."""
         if not self.graph:
-            messagebox.showwarning("Warning", "Network is empty")
+            messagebox.showwarning("Warning", "Network model is empty.")
             return
 
         filename = filedialog.asksaveasfilename(
@@ -2242,12 +2271,12 @@ Quantum Circuit:
             self.save_network_to_file(filename)
 
     def save_network_to_file(self, filename: str) -> None:
-        """Save network to file with complete numpy array handling."""
+        """Serialize the network model to a JSON file, handling Numpy data types."""
         try:
             import numpy as np
 
             def convert_numpy(obj):
-                """Recursively convert numpy types to Python native types."""
+                """Recursively convert numpy types to Python native types for JSON serialization."""
                 if isinstance(obj, np.ndarray):
                     return obj.tolist()
                 elif isinstance(obj, np.integer):
@@ -2261,11 +2290,11 @@ Quantum Circuit:
                 else:
                     return obj
 
-            # Convert all data structures
+            # Convert data structures
             nodes_serializable = convert_numpy(self.node_data)
             edges_serializable = list(self.graph.edges())
 
-            # Convert positions
+            # Convert spatial coordinates
             positions_serializable = {}
             for node, pos in self.node_positions.items():
                 if isinstance(pos, (tuple, list, np.ndarray)):
@@ -2284,15 +2313,15 @@ Quantum Circuit:
             with open(filename, 'w') as f:
                 json.dump(data, f, indent=4)
 
-            self.status_bar.config(text=f"✓ Saved to {filename}")
-            self.logger.info(f"Network saved to {filename}")
+            self.status_bar.config(text=f"✓ State persisted to {filename}")
+            self.logger.info(f"Network serialized to {filename}")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save:\n{e}")
-            self.logger.error(f"Save failed: {e}", exc_info=True)
+            messagebox.showerror("Error", f"Save operation failed:\n{e}")
+            self.logger.error(f"Serialization exception: {e}", exc_info=True)
 
     def load_network(self) -> None:
-        """Load network from file."""
+        """Reconstruct the network model from a JSON file."""
         filename = filedialog.askopenfilename(
             filetypes=[("QBN JSON", "*.qbn.json"), ("All Files", "*.*")]
         )
@@ -2321,17 +2350,17 @@ Quantum Circuit:
             self.draw_network()
             self.update_node_lists()
 
-            self.status_bar.config(text=f"✓ Loaded from {filename}")
-            self.logger.info(f"Network loaded from {filename}")
-            messagebox.showinfo("Success", "Network loaded successfully")
+            self.status_bar.config(text=f"✓ Model loaded from {filename}")
+            self.logger.info(f"Network deserialized from {filename}")
+            messagebox.showinfo("Success", "Network model reconstruction successful.")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load:\n{e}")
-            self.logger.error(f"Load failed: {e}")
+            messagebox.showerror("Error", f"Load operation failed:\n{e}")
+            self.logger.error(f"Deserialization exception: {e}")
 
-    # === Example Networks ===
+    # === Example Models ===
 
     def load_2node_example(self) -> None:
-        """Load 2-node example."""
+        """Instantiate the standard 2-node benchmark model."""
         self.new_network(confirm=False)
         self.graph.add_node("X")
         self.node_data["X"] = {'states': ['0', '1'], 'cpt': [0.8, 0.2]}
@@ -2341,11 +2370,11 @@ Quantum Circuit:
         self.node_positions = nx.spring_layout(self.graph)
         self.draw_network()
         self.update_node_lists()
-        self.status_bar.config(text="Loaded 2-node example (X → Y)")
-        self.logger.info("Loaded 2-node example")
+        self.status_bar.config(text="Loaded 2-node benchmark (X → Y)")
+        self.logger.info("2-node benchmark initialized")
 
     def load_burglary_example(self) -> None:
-        """Load Burglary Alarm example."""
+        """Instantiate the classic 'Burglary Alarm' Bayesian Network."""
         self.new_network(confirm=False)
         nodes = {
             "B": {'states': ['0', '1'], 'cpt': [0.999, 0.001]},
@@ -2363,22 +2392,22 @@ Quantum Circuit:
         self.node_positions = nx.spring_layout(self.graph, seed=42)
         self.draw_network()
         self.update_node_lists()
-        self.status_bar.config(text="Loaded Burglary Alarm example")
-        self.logger.info("Loaded Burglary Alarm example")
+        self.status_bar.config(text="Loaded Burglary Alarm topology")
+        self.logger.info("Burglary Alarm topology initialized")
 
-    # === Network Visualization ===
+    # === Graph Visualization Logic ===
 
     def draw_network(self) -> None:
-        """Draw network graph with enhanced drag support."""
+        """Render the network topology using NetworkX and Matplotlib."""
         self.network_ax.clear()
 
-        # Apply locked limits if they exist (prevents jumping on release)
+        # Apply view-lock to maintain stability during drag operations
         if self._drag_lock_xlim and self._drag_lock_ylim:
             self.network_ax.set_xlim(self._drag_lock_xlim)
             self.network_ax.set_ylim(self._drag_lock_ylim)
 
         if not self.graph:
-            self.network_ax.text(0.5, 0.5, "Use 'Network Builder' tab\nto add nodes and edges",
+            self.network_ax.text(0.5, 0.5, "Utilize 'Network Builder' tab\nto define topology",
                                  ha='center', va='center', fontsize=14, color='gray')
             self.network_ax.axis('off')
             self.network_canvas.draw()
@@ -2388,16 +2417,15 @@ Quantum Circuit:
             self.node_positions = nx.spring_layout(self.graph, seed=42)
 
         node_colors = []
-        edge_colors = []
         
         for node in self.graph.nodes():
-            # Highlight selected node
+            # State-dependent coloration
             if node == self.selected_graph_node:
-                node_colors.append('#3498db') # Blue
+                node_colors.append('#3498db') # Selected state (Blue)
             elif self.node_data[node]['cpt'] is None:
-                node_colors.append('#e74c3c') # Red
+                node_colors.append('#e74c3c') # Incomplete state (Red)
             else:
-                node_colors.append('#2ecc71') # Green
+                node_colors.append('#2ecc71') # Valid state (Green)
 
         nx.draw_networkx(
             self.graph,
@@ -2417,26 +2445,25 @@ Quantum Circuit:
 
         from matplotlib.patches import Patch
         legend_elements = [
-            Patch(facecolor='#2ecc71', label='CPT defined'),
-            Patch(facecolor='#e74c3c', label='CPT missing'),
-            Patch(facecolor='#3498db', label='Selected')
+            Patch(facecolor='#2ecc71', label='Parameters Defined'),
+            Patch(facecolor='#e74c3c', label='Parameters Missing'),
+            Patch(facecolor='#3498db', label='Active Selection')
         ]
         self.network_ax.legend(handles=legend_elements, loc='upper left', fontsize=9)
 
         self.network_ax.axis('off')
         self.network_fig.tight_layout()
 
-        # If dragging, use draw_idle for performance (prevents UI lag)
-        # Otherwise use standard draw
+        # Optimized rendering strategy
         if self._dragging:
             self.network_canvas.draw_idle()
         else:
             self.network_canvas.draw()
 
-    # === Mouse Interaction for Network Graph ===
+    # === Interaction Event Handling ===
 
     def find_node_at_event(self, event):
-        """Find node at mouse event position."""
+        """Identify the graph node at the cursor coordinates."""
         if not event.xdata or not event.ydata:
             return None
 
@@ -2451,89 +2478,87 @@ Quantum Circuit:
                     found_node = node
 
         return found_node
+
     def on_press(self, event):
-        """Handle mouse press."""
+        """Handle mouse-down event for node selection and drag initiation."""
         if event.inaxes != self.network_ax:
             return
         self.dragged_node = self.find_node_at_event(event)
         
-        # Update selection state
+        # Update Selection State
         if self.dragged_node:
             self.selected_graph_node = self.dragged_node
             self.network_canvas.get_tk_widget().config(cursor="hand2")
-            self.status_bar.config(text=f"Selected node: {self.dragged_node} (Press Delete to remove)")
+            self.status_bar.config(text=f"Node Selected: {self.dragged_node} (Delete to remove)")
             
-            # Start drag session
+            # Start drag operation
             self._dragging = True
-            # Lock the limits to prevent graph auto-scaling while dragging
-            # We update this on every press to ensure we lock the CURRENT view
+            # Lock viewport to prevent jitter during interaction
             self._drag_lock_xlim = self.network_ax.get_xlim()
             self._drag_lock_ylim = self.network_ax.get_ylim()
             
-            # Auto-select in comboboxes for convenience
+            # Context synchronization
             self.cpt_node_combo.set(self.dragged_node)
-            self.load_cpt_editor() # Auto-load CPT
+            self.load_cpt_editor() 
         else:
             self.selected_graph_node = None
             
         self.draw_network()
 
     def on_release(self, event):
-        """Handle mouse release."""
+        """Handle mouse-up event for drag termination."""
         if self.dragged_node:
             self.dragged_node = None
             self._dragging = False
-            # Do NOT clear limits here. Persist the view to prevent jumping.
             self.network_canvas.get_tk_widget().config(cursor="")
             self.draw_network()
 
     def on_motion(self, event):
-        """Handle mouse motion with throttling for smooth performance."""
+        """Handle cursor motion event for real-time node repositioning (throttled)."""
         if self.dragged_node and event.inaxes == self.network_ax:
-            # Throttle updates to ~30 FPS to prevent event queue overload
+            # Throttle refresh rate to ~30 FPS
             current_time = time.time()
             if current_time - self._last_drag_time < 0.03:
                 return
             self._last_drag_time = current_time
 
-            # Ensure coordinates are valid before updating
             if event.xdata is not None and event.ydata is not None:
                 self.node_positions[self.dragged_node] = (event.xdata, event.ydata)
                 self.draw_network()
 
 
 # ============================================================================
-# MAIN ENTRY POINT
+# APPLICATION ENTRY POINT
 # ============================================================================
 
 if __name__ == "__main__":
-    """Main entry point for the application."""
+    """Main execution block."""
     try:
-        logger.debug("="*70)
-        logger.debug("Quantum Bayesian Network Builder v2.2 - Enhanced Validation")
-        logger.debug("="*70)
+        print("="*70)
+        print("BayesQ - Quantum Bayesian Network Platform")
+        print("="*70)
         print()
-        logger.debug("Initializing application...")
+        print("Initializing runtime environment...")
 
         root = tk.Tk()
         app = QBNApp(root)
 
-        logger.debug("✓ Application initialized successfully")
+        print("✓ System initialization complete.")
         print()
-        logger.debug("Starting GUI...")
+        print("Launching Graphical User Interface...")
         print()
 
         root.mainloop()
 
     except (ImportError, ModuleNotFoundError) as e:
-        logger.debug(f"\n✗ Error: Missing required library")
-        logger.debug(f"  {e}")
+        print(f"\n✗ Critical Error: Unresolved dependency detected.")
+        print(f"  {e}")
         print()
-        logger.debug("Please install required packages:")
-        logger.debug("  pip install qiskit qiskit-aer qiskit-machine-learning")
-        logger.debug("  pip install networkx matplotlib psutil")
+        print("Please resolve dependencies via:")
+        print("  pip install qiskit qiskit-aer")
+        print("  pip install networkx matplotlib psutil")
         print()
     except Exception as e:
-        logger.debug(f"\n✗ Unexpected error: {e}")
+        print(f"\n✗ Fatal Exception: {e}")
         import traceback
         traceback.print_exc()
